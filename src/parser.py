@@ -201,7 +201,9 @@ class FinalMarshrutochkaParser:
             print("Поиск маршрутов Островец-Минск...")
             result['ostrovets_to_minsk'] = await self.get_routes_ostrovets_minsk(date)
             
-            result['success'] = True
+            # Успех только если получили хотя бы один рейс
+            if result['minsk_to_ostrovets'] or result['ostrovets_to_minsk']:
+                result['success'] = True
             
         except Exception as e:
             print(f"Ошибка при получении всех маршрутов: {e}")
