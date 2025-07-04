@@ -13,16 +13,35 @@ import os
 
 logger = logging.getLogger(__name__)
 
+from dataclasses import dataclass
+
+
+@dataclass
+class SessionInfo:
+    """Информация о сессии пользователя"""
+
+    context: BrowserContext
+    page: Page
+    storage_path: str
+    authenticated: bool = False
+
+
 class AuthManager:
     """Менеджер аутентификации для сайта маршруточки"""
-    
+
     def __init__(self):
         self.base_url = "https://билет.маршруточка.бел"
         self.profile_url = f"{self.base_url}/profile"
-        self.browser = None
-        self.context = None
-        self.page = None
-        self.is_authenticated = False
+        self.browser: Optional[Browser] = None
+        self.sessions: Dict[int, SessionInfo] = {}
+        self.playwright = None
+        self.sessions_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sessions")
+        os.makedirs(self.sessions_dir, exist_ok=True)
+
+    def is_authenticated(self, user_id: int) -> bool:
+        """Проверяет, авторизован ли пользователь"""
+        session = self.sessions.get(user_id)
+        return bool(session and session.authenticated)
         
     async def __aenter__(self):
         """Инициализация браузера"""
@@ -31,21 +50,44 @@ class AuthManager:
             headless=True,
             args=['--no-sandbox', '--disable-dev-shm-usage']
         )
-        self.context = await self.browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        )
-        self.page = await self.context.new_page()
         return self
         
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Закрытие браузера"""
+        for session in list(self.sessions.values()):
+            try:
+                await session.context.close()
+            except Exception:
+                pass
+        self.sessions.clear()
         if self.browser:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
     
-    async def login(self, phone: str, password: str) -> bool:
+    async def _get_or_create_session(self, user_id: int) -> SessionInfo:
+        """Возвращает сессию пользователя, создавая при необходимости"""
+        if user_id in self.sessions:
+            return self.sessions[user_id]
+
+        storage_path = os.path.join(self.sessions_dir, f"{user_id}_storage.json")
+        context_args = {
+            "viewport": {"width": 1920, "height": 1080},
+            "user_agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+        }
+        if os.path.exists(storage_path):
+            context_args["storage_state"] = storage_path
+
+        context = await self.browser.new_context(**context_args)
+        page = await context.new_page()
+        session = SessionInfo(context=context, page=page, storage_path=storage_path)
+        self.sessions[user_id] = session
+        return session
+
+    async def login(self, user_id: int, phone: str, password: str) -> bool:
         """
         Авторизация на сайте
         
@@ -57,33 +99,35 @@ class AuthManager:
             bool: True если авторизация успешна
         """
         try:
-            logger.info(f"Начинаем авторизацию для номера {phone}")
-            
+            session = await self._get_or_create_session(user_id)
+            page = session.page
+            logger.info(f"Начинаем авторизацию для номера {phone} (user {user_id})")
+
             # Переходим на главную страницу
-            await self.page.goto(self.base_url, wait_until='networkidle')
+            await page.goto(self.base_url, wait_until='networkidle')
             
             # Кликаем по кнопке "Войти"
-            await self.page.click('text="Войти"')
-            await self.page.wait_for_timeout(1000)
+            await page.click('text="Войти"')
+            await page.wait_for_timeout(1000)
             
             # Заполняем форму авторизации
             phone_selector = 'form.enterForm input[name="phone"]'
             password_selector = 'form.enterForm input[name="password"]'
             
-            await self.page.fill(phone_selector, phone)
-            await self.page.fill(password_selector, password)
+            await page.fill(phone_selector, phone)
+            await page.fill(password_selector, password)
             
             # Отправляем форму
             submit_selector = 'form.enterForm input[type="submit"]'
-            await self.page.click(submit_selector)
+            await page.click(submit_selector)
             
             # Ждем ответа
-            await self.page.wait_for_load_state('networkidle', timeout=10000)
-            await self.page.wait_for_timeout(2000)
+            await page.wait_for_load_state('networkidle', timeout=10000)
+            await page.wait_for_timeout(2000)
             
             # Проверяем результат авторизации
-            current_url = self.page.url
-            page_title = await self.page.title()
+            current_url = page.url
+            page_title = await page.title()
             
             # Проверяем признаки успешной авторизации
             success_indicators = [
@@ -96,10 +140,11 @@ class AuthManager:
             
             for indicator in success_indicators:
                 try:
-                    element = await self.page.query_selector(indicator)
+                    element = await page.query_selector(indicator)
                     if element:
-                        self.is_authenticated = True
+                        session.authenticated = True
                         logger.info(f"Авторизация успешна! Найден индикатор: {indicator}")
+                        await session.context.storage_state(path=session.storage_path)
                         return True
                 except:
                     continue
@@ -107,7 +152,8 @@ class AuthManager:
             # Если URL изменился, возможно авторизация прошла
             if current_url != self.base_url:
                 logger.info("Возможно авторизация прошла (изменился URL)")
-                self.is_authenticated = True
+                session.authenticated = True
+                await session.context.storage_state(path=session.storage_path)
                 return True
             
             logger.warning("Признаки успешной авторизации не найдены")
@@ -116,24 +162,40 @@ class AuthManager:
         except Exception as e:
             logger.error(f"Ошибка при авторизации: {e}")
             return False
+
+    async def logout(self, user_id: int) -> None:
+        """Выход пользователя и очистка его сессии"""
+        session = self.sessions.pop(user_id, None)
+        if session:
+            try:
+                await session.context.close()
+            except Exception:
+                pass
+            if os.path.exists(session.storage_path):
+                try:
+                    os.remove(session.storage_path)
+                except Exception:
+                    pass
     
-    async def get_profile_info(self) -> Dict:
+    async def get_profile_info(self, user_id: int) -> Dict:
         """
         Получение информации профиля
         
         Returns:
             Dict: Информация о профиле
         """
-        if not self.is_authenticated:
+        session = self.sessions.get(user_id)
+        if not session or not session.authenticated:
             return {"error": "Пользователь не авторизован"}
         
         try:
             # Переходим на страницу профиля
-            await self.page.goto(self.profile_url, wait_until='networkidle')
+            page = session.page
+            await page.goto(self.profile_url, wait_until='networkidle')
             
             profile_info = {
-                'url': self.page.url,
-                'title': await self.page.title(),
+                'url': page.url,
+                'title': await page.title(),
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -148,7 +210,7 @@ class AuthManager:
             for field, selectors in profile_selectors.items():
                 for selector in selectors:
                     try:
-                        element = await self.page.query_selector(selector)
+                        element = await page.query_selector(selector)
                         if element:
                             text = await element.text_content()
                             if text and text.strip():
@@ -163,21 +225,23 @@ class AuthManager:
             logger.error(f"Ошибка при получении информации профиля: {e}")
             return {"error": str(e)}
     
-    async def get_bookings(self) -> List[Dict]:
+    async def get_bookings(self, user_id: int) -> List[Dict]:
         """
         Получение списка бронирований
         
         Returns:
             List[Dict]: Список бронирований
         """
-        if not self.is_authenticated:
+        session = self.sessions.get(user_id)
+        if not session or not session.authenticated:
             return []
         
         try:
             bookings = []
             
             # Возвращаемся на главную для поиска броней
-            await self.page.goto(self.base_url, wait_until='networkidle')
+            page = session.page
+            await page.goto(self.base_url, wait_until='networkidle')
             
             # Ищем элементы, связанные с бронями
             booking_selectors = [
@@ -192,10 +256,10 @@ class AuthManager:
             
             for selector in booking_selectors:
                 try:
-                    element = await self.page.query_selector(selector)
+                    element = await page.query_selector(selector)
                     if element:
                         await element.click()
-                        await self.page.wait_for_load_state('networkidle')
+                        await page.wait_for_load_state('networkidle')
                         
                         # Анализируем страницу броней
                         booking_containers = [
@@ -206,7 +270,7 @@ class AuthManager:
                         ]
                         
                         for container_selector in booking_containers:
-                            containers = await self.page.query_selector_all(container_selector)
+                            containers = await page.query_selector_all(container_selector)
                             for container in containers:
                                 try:
                                     booking_data = {
@@ -253,7 +317,7 @@ class AuthManager:
             logger.error(f"Ошибка при получении броней: {e}")
             return []
     
-    async def search_routes(self, route_query: str = None, from_city: str = None, to_city: str = None, date: str = None) -> List[Dict]:
+    async def search_routes(self, user_id: int, route_query: str = None, from_city: str = None, to_city: str = None, date: str = None) -> List[Dict]:
         """
         Поиск маршрутов
         
@@ -267,9 +331,12 @@ class AuthManager:
             List[Dict]: Список найденных маршрутов
         """
         try:
+            session = await self._get_or_create_session(user_id)
+            page = session.page
+
             # Переходим на главную страницу
-            await self.page.goto(self.base_url, wait_until='networkidle')
-            await self.page.wait_for_timeout(2000)
+            await page.goto(self.base_url, wait_until='networkidle')
+            await page.wait_for_timeout(2000)
             
             # Если передан route_query, парсим его
             if route_query and not from_city and not to_city:
@@ -298,7 +365,7 @@ class AuthManager:
             form = None
             for form_selector in search_forms:
                 try:
-                    form = await self.page.query_selector(form_selector)
+                    form = await page.query_selector(form_selector)
                     if form:
                         break
                 except:
@@ -306,8 +373,8 @@ class AuthManager:
             
             if form:
                 # Заполняем поля поиска
-                places_field = await self.page.query_selector('input[name="places"]')
-                date_field = await self.page.query_selector('input[name="date"]')
+                places_field = await page.query_selector('input[name="places"]')
+                date_field = await page.query_selector('input[name="date"]')
                 
                 if places_field:
                     route_text = f"{from_city} - {to_city}"
@@ -320,11 +387,11 @@ class AuthManager:
                     await date_field.type(date, delay=100)
                 
                 # Нажимаем кнопку поиска
-                submit_button = await self.page.query_selector('button[type="submit"]')
+                submit_button = await page.query_selector('button[type="submit"]')
                 if submit_button:
                     await submit_button.click()
-                    await self.page.wait_for_load_state('networkidle')
-                    await self.page.wait_for_timeout(3000)
+                    await page.wait_for_load_state('networkidle')
+                    await page.wait_for_timeout(3000)
                 
                 # Парсим результаты поиска
                 routes = []
@@ -340,7 +407,7 @@ class AuthManager:
                 
                 for selector in result_selectors:
                     try:
-                        route_elements = await self.page.query_selector_all(selector)
+                        route_elements = await page.query_selector_all(selector)
                         if route_elements:
                             for element in route_elements:
                                 try:
@@ -425,7 +492,7 @@ class AuthManager:
                 }
             ]
     
-    async def book_ticket(self, route_data: Dict) -> Dict:
+    async def book_ticket(self, user_id: int, route_data: Dict) -> Dict:
         """
         Бронирование билета
         
@@ -435,7 +502,8 @@ class AuthManager:
         Returns:
             Dict: Результат бронирования
         """
-        if not self.is_authenticated:
+        session = self.sessions.get(user_id)
+        if not session or not session.authenticated:
             return {"error": "Пользователь не авторизован"}
         
         try:
@@ -451,7 +519,7 @@ class AuthManager:
             logger.error(f"Ошибка при бронировании билета: {e}")
             return {"error": str(e)}
     
-    async def check_booking_status(self, booking_number: str, phone_digits: str = None) -> Dict:
+    async def check_booking_status(self, user_id: int, booking_number: str, phone_digits: str = None) -> Dict:
         """
         Проверка статуса бронирования
         
@@ -463,9 +531,11 @@ class AuthManager:
             Dict: Статус бронирования
         """
         try:
+            session = await self._get_or_create_session(user_id)
+            page = session.page
             # Переходим на главную страницу
-            await self.page.goto(self.base_url, wait_until='networkidle')
-            await self.page.wait_for_timeout(2000)
+            await page.goto(self.base_url, wait_until='networkidle')
+            await page.wait_for_timeout(2000)
             
             # Ищем форму проверки статуса различными способами
             status_form_selectors = [
@@ -482,7 +552,7 @@ class AuthManager:
             status_form = None
             for selector in status_form_selectors:
                 try:
-                    element = await self.page.query_selector(selector)
+                    element = await page.query_selector(selector)
                     if element:
                         is_visible = await element.is_visible()
                         is_enabled = await element.is_enabled()
@@ -508,14 +578,14 @@ class AuthManager:
                 phone_field = None
                 for selector in phone_field_selectors:
                     try:
-                        element = await self.page.query_selector(selector)
+                        element = await page.query_selector(selector)
                         if element:
                             is_visible = await element.is_visible()
                             is_enabled = await element.is_enabled()
                             if is_visible and is_enabled:
                                 phone_field = element
                                 break
-                    except:
+                    except Exception:
                         continue
                 
                 if phone_field and phone_digits:
@@ -534,27 +604,27 @@ class AuthManager:
                 submit_button = None
                 for selector in submit_button_selectors:
                     try:
-                        element = await self.page.query_selector(selector)
+                        element = await page.query_selector(selector)
                         if element:
                             is_visible = await element.is_visible()
                             if is_visible:
                                 submit_button = element
                                 break
-                    except:
+                    except Exception:
                         continue
                 
                 if submit_button:
                     await submit_button.click()
-                    await self.page.wait_for_load_state('networkidle')
-                    await self.page.wait_for_timeout(3000)
+                    await page.wait_for_load_state('networkidle')
+                    await page.wait_for_timeout(3000)
                 else:
                     # Если кнопки нет, попробуем нажать Enter
                     await status_form.press('Enter')
-                    await self.page.wait_for_load_state('networkidle')
-                    await self.page.wait_for_timeout(3000)
+                    await page.wait_for_load_state('networkidle')
+                    await page.wait_for_timeout(3000)
                 
                 # Получаем результат
-                page_content = await self.page.content()
+                page_content = await page.content()
                 
                 # Проверяем, есть ли информация о бронировании
                 if "не найден" in page_content.lower() or "не существует" in page_content.lower():
