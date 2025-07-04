@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Продвинутый Telegram-бот с настраиваемым мониторингом
+Продвинутый Telegram-бот с настраиваемым мониторингом и работой с профилем
 """
 
 import logging
@@ -27,13 +27,16 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Состояния для ConversationHandler
 (CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE, CHOOSE_TIME_RANGE, 
- CONFIRM_MONITORING, MONITORING_ACTIVE) = range(6)
+ CONFIRM_MONITORING, MONITORING_ACTIVE, LOGIN_PHONE, LOGIN_PASSWORD,
+ SEARCH_FROM, SEARCH_TO, SEARCH_DATE, BOOKING_NUMBER, PHONE_DIGITS) = range(13)
 
 # Глобальные переменные
 parser = None
+auth_manager = None
 scheduler = AsyncIOScheduler()
 active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
+user_auth = {}  # user_id -> auth_status
 
 async def init_parser():
     """Инициализация парсера"""
@@ -45,6 +48,17 @@ async def init_parser():
             from parser import FinalMarshrutochkaParser
         parser = FinalMarshrutochkaParser()
         await parser.__aenter__()
+
+async def init_auth_manager():
+    """Инициализация менеджера авторизации"""
+    global auth_manager
+    if auth_manager is None:
+        try:
+            from .auth_manager import AuthManager
+        except ImportError:
+            from auth_manager import AuthManager
+        auth_manager = AuthManager()
+        await auth_manager.__aenter__()
 
 # ==================== UTILITY FUNCTIONS ====================
 
@@ -644,7 +658,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
         [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
-        [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")],
+        [InlineKeyboardButton("� Войти в аккаунт", callback_data="login_account")],
+        [InlineKeyboardButton("👤 Мой профиль", callback_data="view_profile")],
+        [InlineKeyboardButton("�📊 Мои мониторинги", callback_data="my_monitors")],
         [InlineKeyboardButton("❓ Помощь", callback_data="help")]
     ]
     
@@ -652,6 +668,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
         "🛣️ **Направления:** Минск ⇄ Островец\n"
         "🌐 **Источник:** билет.маршруточка.бел\n\n"
+        "🆕 **Новые возможности:**\n"
+        "• 🔐 Вход в личный кабинет\n"
+        "• 👤 Просмотр профиля\n"
+        "• 🎫 Управление бронями\n"
+        "• 🔍 Расширенный поиск\n\n"
         "💡 **Выберите действие:**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
@@ -930,6 +951,125 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.answer("❓ Неизвестная команда")
 
+# ==================== PROFILE AND BOOKING COMMANDS ====================
+
+async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для входа в аккаунт"""
+    user_id = update.effective_user.id
+    
+    if user_id in user_auth and user_auth[user_id].get('authenticated'):
+        await update.message.reply_text(
+            "✅ **Вы уже авторизованы в системе!**\n\n"
+            "🔍 Используйте /profile для просмотра профиля\n"
+            "🎫 Используйте /bookings для просмотра броней",
+            parse_mode='Markdown'
+        )
+        return ConversationHandler.END
+    
+    await update.message.reply_text(
+        "🔐 **Вход в аккаунт маршруточки**\n\n"
+        "📱 Введите ваш номер телефона в формате +375XXXXXXXXX:",
+        parse_mode='Markdown'
+    )
+    
+    return LOGIN_PHONE
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для просмотра профиля"""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_auth or not user_auth[user_id].get('authenticated'):
+        await update.message.reply_text(
+            "🔐 **Для просмотра профиля требуется авторизация**\n\n"
+            "💡 Используйте /login для входа в аккаунт",
+            parse_mode='Markdown'
+        )
+        return
+    
+    await update.message.reply_text(
+        "⏳ **Загружаю информацию профиля...**",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        await init_auth_manager()
+        profile_info = await auth_manager.get_profile_info()
+        
+        try:
+            from .ticket_formatter import TicketFormatter
+        except ImportError:
+            from ticket_formatter import TicketFormatter
+        
+        formatted_profile = TicketFormatter.format_profile_info(profile_info)
+        
+        keyboard = [
+            [InlineKeyboardButton("🎫 Мои брони", callback_data="view_bookings")],
+            [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
+            [InlineKeyboardButton("🔄 Обновить", callback_data="refresh_profile")]
+        ]
+        
+        await update.message.reply_text(
+            formatted_profile,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении профиля для пользователя {user_id}: {e}")
+        await update.message.reply_text(
+            "❌ **Ошибка загрузки профиля**\n\n"
+            "⚠️ Попробуйте позже или переавторизуйтесь",
+            parse_mode='Markdown'
+        )
+
+async def bookings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для просмотра бронирований"""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_auth or not user_auth[user_id].get('authenticated'):
+        await update.message.reply_text(
+            "🔐 **Для просмотра броней требуется авторизация**\n\n"
+            "💡 Используйте /login для входа в аккаунт",
+            parse_mode='Markdown'
+        )
+        return
+    
+    await update.message.reply_text(
+        "⏳ **Загружаю ваши бронирования...**",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        await init_auth_manager()
+        bookings = await auth_manager.get_bookings()
+        
+        try:
+            from .ticket_formatter import TicketFormatter
+        except ImportError:
+            from ticket_formatter import TicketFormatter
+        
+        formatted_bookings = TicketFormatter.format_booking_list(bookings)
+        
+        keyboard = [
+            [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
+            [InlineKeyboardButton("👤 Профиль", callback_data="view_profile")],
+            [InlineKeyboardButton("🔄 Обновить", callback_data="refresh_bookings")]
+        ]
+        
+        await update.message.reply_text(
+            formatted_bookings,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении броней для пользователя {user_id}: {e}")
+        await update.message.reply_text(
+            "❌ **Ошибка загрузки броней**\n\n"
+            "⚠️ Попробуйте позже или переавторизуйтесь",
+            parse_mode='Markdown'
+        )
+
 # ==================== MAIN FUNCTION ====================
 
 async def post_init(application):
@@ -988,6 +1128,9 @@ def main():
     # Добавление обработчиков
     app.add_handler(monitoring_handler)
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("login", login_command))
+    app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("bookings", bookings_command))
     app.add_handler(CommandHandler("monitoring", monitoring_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CallbackQueryHandler(button_callback))
