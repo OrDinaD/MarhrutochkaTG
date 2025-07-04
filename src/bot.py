@@ -7,6 +7,7 @@ import logging
 import os
 import asyncio
 import json
+import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
@@ -19,7 +20,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 load_dotenv()
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
 
 # Отключаем подробные сообщения от httpx, используемого библиотекой telegram
