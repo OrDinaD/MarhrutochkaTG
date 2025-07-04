@@ -22,6 +22,9 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Отключаем подробные сообщения от httpx, используемого библиотекой telegram
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # Состояния для ConversationHandler
 (CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE, CHOOSE_TIME_RANGE, 
  CONFIRM_MONITORING, MONITORING_ACTIVE) = range(6)
