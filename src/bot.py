@@ -741,7 +741,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 **Команды:**\n"
         "• `/start` - главное меню\n"
         "• `/monitoring` - управление мониторингом\n"
-        "• `/help` - эта справка\n\n"
+        "• `/help` - эта справка\n"
+        "• `/logout` - выход из аккаунта\n\n"
         "🚌 **Направления:**\n"
         "• Минск → Островец\n"
         "• Островец → Минск",
@@ -1022,6 +1023,26 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return LOGIN_PHONE
 
+async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для выхода из аккаунта"""
+    user_id = update.effective_user.id
+
+    # Очищаем информацию об авторизации пользователя
+    user_auth.pop(user_id, None)
+
+    global auth_manager
+    if auth_manager is not None:
+        # Завершаем сессию авторизации и сбрасываем менеджер
+        try:
+            await auth_manager.__aexit__(None, None, None)
+        finally:
+            auth_manager = None
+
+    await update.message.reply_text(
+        "✅ **Вы вышли из аккаунта**",
+        parse_mode='Markdown'
+    )
+
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда для просмотра профиля"""
     user_id = update.effective_user.id
@@ -1187,6 +1208,7 @@ def main():
     app.add_handler(monitoring_handler)
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("login", login_command))
+    app.add_handler(CommandHandler("logout", logout_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("bookings", bookings_command))
     app.add_handler(CommandHandler("monitoring", monitoring_command))
