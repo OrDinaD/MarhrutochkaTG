@@ -741,6 +741,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 **Команды:**\n"
         "• `/start` - главное меню\n"
         "• `/monitoring` - управление мониторингом\n"
+        "• `/check_booking` - статус бронирования\n"
         "• `/help` - эта справка\n\n"
         "🚌 **Направления:**\n"
         "• Минск → Островец\n"
@@ -1109,7 +1110,7 @@ async def bookings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
-        
+
     except Exception as e:
         logger.error(f"Ошибка при получении броней для пользователя {user_id}: {e}")
         await update.message.reply_text(
@@ -1117,6 +1118,61 @@ async def bookings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Попробуйте позже или переавторизуйтесь",
             parse_mode='Markdown'
         )
+
+async def check_booking_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Проверка статуса бронирования"""
+    await update.message.reply_text(
+        "📋 **Проверка бронирования**\n\n"
+        "Введите номер бронирования:",
+        parse_mode='Markdown'
+    )
+
+    return BOOKING_NUMBER
+
+async def handle_booking_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение номера бронирования"""
+    context.user_data['booking_number'] = update.message.text.strip()
+
+    await update.message.reply_text(
+        "📱 **Последние 4 цифры телефона?**\n"
+        "Если не помните, отправьте `-`",
+        parse_mode='Markdown'
+    )
+
+    return PHONE_DIGITS
+
+async def handle_phone_digits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение последних цифр телефона и вывод статуса"""
+    phone_digits = update.message.text.strip()
+    if phone_digits in {'-', 'нет', 'Нет', 'skip', 'Skip'}:
+        phone_digits = None
+
+    booking_number = context.user_data.get('booking_number')
+
+    await update.message.reply_text(
+        "⏳ **Проверяю бронирование...**",
+        parse_mode='Markdown'
+    )
+
+    try:
+        await init_auth_manager()
+        status = await auth_manager.check_booking_status(booking_number, phone_digits)
+
+        try:
+            from .ticket_formatter import TicketFormatter
+        except ImportError:
+            from ticket_formatter import TicketFormatter
+
+        formatted_status = TicketFormatter.format_booking_status(status)
+        await update.message.reply_text(formatted_status, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Ошибка при проверке брони {booking_number}: {e}")
+        await update.message.reply_text(
+            "❌ **Ошибка при проверке бронирования**",
+            parse_mode='Markdown'
+        )
+
+    return ConversationHandler.END
 
 # ==================== MAIN FUNCTION ====================
 
@@ -1150,7 +1206,7 @@ def main():
         return
     
     app = Application.builder().token(token).post_init(post_init).build()
-    
+
     # Настройка ConversationHandler для мониторинга
     monitoring_handler = ConversationHandler(
         entry_points=[
@@ -1182,9 +1238,20 @@ def main():
             CallbackQueryHandler(lambda u, c: ConversationHandler.END, pattern="^cancel")
         ]
     )
-    
+
+    check_booking_handler = ConversationHandler(
+        entry_points=[CommandHandler("check_booking", check_booking_command)],
+        states={
+            BOOKING_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_booking_number)],
+            PHONE_DIGITS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_digits)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        per_user=True,
+    )
+
     # Добавление обработчиков
     app.add_handler(monitoring_handler)
+    app.add_handler(check_booking_handler)
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("login", login_command))
     app.add_handler(CommandHandler("profile", profile_command))
