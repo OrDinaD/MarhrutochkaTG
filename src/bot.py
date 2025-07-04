@@ -34,6 +34,29 @@ parser = None
 scheduler = AsyncIOScheduler()
 active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
+DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'monitors.json')
+
+def load_active_monitors():
+    """Загрузка активных мониторингов из файла"""
+    global active_monitors
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            active_monitors = {int(k): v for k, v in data.items()}
+        except Exception as e:
+            logger.error(f"Не удалось загрузить мониторинги: {e}")
+
+def save_active_monitors():
+    """Сохранение активных мониторингов в файл"""
+    try:
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(active_monitors, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Не удалось сохранить мониторинги: {e}")
+
+# Загружаем существующие мониторинги при импорте модуля
+load_active_monitors()
 
 async def init_parser():
     """Инициализация парсера"""
@@ -387,6 +410,7 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
         config['created_at'] = datetime.now().isoformat()
         
         active_monitors[user_id] = config
+        save_active_monitors()
         
         # Добавляем задачу в планировщик
         scheduler.add_job(
@@ -793,6 +817,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "stop_monitoring":
         if user_id in active_monitors:
             del active_monitors[user_id]
+            save_active_monitors()
             
             # Удаляем задачу из планировщика
             try:
@@ -936,6 +961,16 @@ async def post_init(application):
     """Инициализация после запуска приложения"""
     global scheduler
     scheduler.start()
+    # Восстанавливаем задачи мониторинга из сохранённого файла
+    for uid in list(active_monitors.keys()):
+        scheduler.add_job(
+            check_routes_for_user,
+            'interval',
+            minutes=5,
+            id=f"monitor_{uid}",
+            args=[uid],
+            replace_existing=True
+        )
     print("✅ Планировщик запущен!")
 
 def main():
