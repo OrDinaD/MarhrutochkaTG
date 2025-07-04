@@ -24,6 +24,7 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
 )
+from telegram.warnings import PTBUserWarning
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Загружаем переменные окружения
