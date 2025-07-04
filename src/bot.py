@@ -23,8 +23,8 @@ from telegram.ext import (
     filters,
     ContextTypes,
     ConversationHandler,
-    PTBUserWarning,
 )
+from telegram.warnings import PTBUserWarning
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Загружаем переменные окружения
