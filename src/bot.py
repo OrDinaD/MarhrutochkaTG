@@ -1022,6 +1022,52 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return LOGIN_PHONE
 
+async def handle_login_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сохраняет номер телефона и запрашивает пароль"""
+    phone = update.message.text.strip()
+    context.user_data['login_phone'] = phone
+
+    await update.message.reply_text(
+        "🔑 Введите пароль от аккаунта:",
+        parse_mode='Markdown'
+    )
+
+    return LOGIN_PASSWORD
+
+async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Проводит авторизацию пользователя"""
+    user_id = update.effective_user.id
+    password = update.message.text.strip()
+    phone = context.user_data.get('login_phone', '')
+
+    await update.message.reply_text(
+        "⏳ **Проверяю данные...**",
+        parse_mode='Markdown'
+    )
+
+    try:
+        await init_auth_manager()
+        success = await auth_manager.login(phone, password)
+        if success:
+            user_auth[user_id] = {'authenticated': True}
+            await update.message.reply_text(
+                "✅ **Успешный вход!**",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                "❌ **Не удалось войти. Проверьте данные и попробуйте снова.**",
+                parse_mode='Markdown'
+            )
+    except Exception as e:
+        logger.error(f"Ошибка авторизации пользователя {user_id}: {e}")
+        await update.message.reply_text(
+            "❌ **Ошибка авторизации. Попробуйте позже.**",
+            parse_mode='Markdown'
+        )
+
+    return ConversationHandler.END
+
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда для просмотра профиля"""
     user_id = update.effective_user.id
@@ -1182,11 +1228,21 @@ def main():
             CallbackQueryHandler(lambda u, c: ConversationHandler.END, pattern="^cancel")
         ]
     )
+
+    login_handler = ConversationHandler(
+        entry_points=[CommandHandler("login", login_command)],
+        states={
+            LOGIN_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_login_phone)],
+            LOGIN_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_login_password)]
+        },
+        per_user=True,
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)]
+    )
     
     # Добавление обработчиков
     app.add_handler(monitoring_handler)
+    app.add_handler(login_handler)
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("login", login_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("bookings", bookings_command))
     app.add_handler(CommandHandler("monitoring", monitoring_command))
