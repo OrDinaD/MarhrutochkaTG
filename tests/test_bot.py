@@ -52,7 +52,7 @@ async def main():
         print("\n✅ Все тесты пройдены успешно!")
         print("🚀 Бот готов к запуску!")
         print("\nДля запуска бота используйте:")
-        print("python run_bot.py")
+        print("./scripts/start_bot.sh")
     else:
         print("\n❌ Тесты не пройдены")
         print("Проверьте настройки в файле .env")
