@@ -1,203 +1,216 @@
 #!/usr/bin/env python3
 """
-Демонстрация возможностей Telegram-бота маршруточки
+Демонстрационный скрипт для тестирования новых функций аутентификации
 """
 
 import asyncio
-from datetime import datetime, timedelta
-from final_parser import FinalMarshrutochkaParser
+import sys
+import os
 
-def format_route(route, index=None):
-    """Форматирование маршрута для демонстрации"""
-    prefix = f"{index}. " if index else ""
-    
-    departure = route.get('departure_time', 'н/д')
-    arrival = route.get('arrival_time', 'н/д')
-    duration = route.get('duration', 'н/д')
-    seats = route.get('available_seats', 'н/д')
-    carrier = route.get('carrier', 'н/д')
-    
-    # Эмодзи для количества мест
-    if isinstance(seats, int):
-        if seats == 0:
-            seats_emoji = "🚫"
-        elif seats <= 3:
-            seats_emoji = "🔥"
-        elif seats <= 5:
-            seats_emoji = "⚠️"
-        else:
-            seats_emoji = "✅"
-    else:
-        seats_emoji = "❓"
-    
-    return f"{prefix}{departure} → {arrival} ({duration}) | {seats_emoji} {seats} мест | 🏢{carrier}"
+# Добавляем путь к src в PYTHONPATH
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-async def demo_search_routes():
-    """Демонстрация поиска рейсов"""
-    print("🔍 ДЕМОНСТРАЦИЯ ПОИСКА РЕЙСОВ")
+async def test_auth_manager():
+    """Тестирование менеджера аутентификации"""
+    print("🧪 Тестирование системы аутентификации...")
     print("=" * 60)
     
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-    
-    async with FinalMarshrutochkaParser() as parser:
-        print(f"📅 Поиск рейсов на {tomorrow}")
-        print("⏳ Выполняется запрос к сайту...")
+    try:
+        from auth_manager import AuthManager
+        from ticket_formatter import TicketFormatter
         
-        routes_data = await parser.get_all_routes(tomorrow)
+        # Инициализируем менеджер аутентификации
+        async with AuthManager() as auth:
+            print("✅ AuthManager инициализирован")
+            
+            # Тестовые данные
+            phone = "+375299605390"
+            password = "Zxcvbnm,1"
+            
+            print(f"\n🔐 Попытка авторизации с номером {phone}...")
+            
+            # Попытка входа
+            success = await auth.login(phone, password)
+            
+            if success:
+                print("✅ Авторизация успешна!")
+                
+                # Получаем информацию профиля
+                print("\n👤 Получение информации профиля...")
+                profile_info = await auth.get_profile_info()
+                
+                formatted_profile = TicketFormatter.format_profile_info(profile_info)
+                print("\n📋 Информация профиля:")
+                print(formatted_profile)
+                
+                # Получаем список бронирований
+                print("\n🎫 Получение списка бронирований...")
+                bookings = await auth.get_bookings()
+                
+                formatted_bookings = TicketFormatter.format_booking_list(bookings)
+                print("\n📋 Список бронирований:")
+                print(formatted_bookings)
+                
+                # Тестируем поиск маршрутов
+                print("\n🔍 Тестирование поиска маршрутов...")
+                routes = await auth.search_routes("Минск", "Островец", "2025-07-10")
+                
+                formatted_routes = TicketFormatter.format_route_search_results(routes)
+                print("\n🚌 Результаты поиска:")
+                print(formatted_routes)
+                
+                # Тестируем проверку статуса бронирования
+                print("\n📋 Тестирование проверки статуса бронирования...")
+                status = await auth.check_booking_status("TEST12345", "5390")
+                
+                formatted_status = TicketFormatter.format_booking_status(status)
+                print("\n📊 Статус бронирования:")
+                print(formatted_status)
+                
+            else:
+                print("❌ Авторизация не удалась")
+                print("💡 Возможные причины:")
+                print("   • Неверные учетные данные")
+                print("   • Проблемы с сетью")
+                print("   • Временные проблемы сайта")
         
-        if routes_data.get('success', False):
-            minsk_routes = routes_data.get('minsk_to_ostrovets', [])
-            ostrovets_routes = routes_data.get('ostrovets_to_minsk', [])
-            
-            print(f"✅ Данные получены успешно!")
-            print(f"🕐 Время парсинга: {routes_data.get('search_time', 'н/д')}")
-            print()
-            
-            # Показываем первые 5 рейсов каждого направления
-            print("🚌 МИНСК → ОСТРОВЕЦ")
-            print("-" * 40)
-            if minsk_routes:
-                for i, route in enumerate(minsk_routes[:5], 1):
-                    print(format_route(route, i))
-                if len(minsk_routes) > 5:
-                    print(f"... и еще {len(minsk_routes) - 5} рейсов")
-            else:
-                print("❌ Рейсы не найдены")
-            
-            print()
-            print("🚌 ОСТРОВЕЦ → МИНСК") 
-            print("-" * 40)
-            if ostrovets_routes:
-                for i, route in enumerate(ostrovets_routes[:5], 1):
-                    print(format_route(route, i))
-                if len(ostrovets_routes) > 5:
-                    print(f"... и еще {len(ostrovets_routes) - 5} рейсов")
-            else:
-                print("❌ Рейсы не найдены")
-            
-            print()
-            print("📊 СТАТИСТИКА")
-            print("-" * 40)
-            total_routes = len(minsk_routes) + len(ostrovets_routes)
-            print(f"📈 Всего найдено рейсов: {total_routes}")
-            
-            # Статистика по местам
-            no_seats = sum(1 for r in minsk_routes + ostrovets_routes 
-                          if r.get('available_seats') == 0)
-            few_seats = sum(1 for r in minsk_routes + ostrovets_routes 
-                           if isinstance(r.get('available_seats'), int) and 
-                           1 <= r.get('available_seats') <= 3)
-            many_seats = sum(1 for r in minsk_routes + ostrovets_routes 
-                            if isinstance(r.get('available_seats'), int) and 
-                            r.get('available_seats') > 5)
-            
-            print(f"🚫 Без мест: {no_seats}")
-            print(f"🔥 Мало мест (1-3): {few_seats}")
-            print(f"✅ Много мест (6+): {many_seats}")
-            
-        else:
-            print("❌ Не удалось получить данные о рейсах")
+    except ImportError as e:
+        print(f"❌ Ошибка импорта: {e}")
+        print("💡 Убедитесь, что все модули находятся в папке src/")
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
 
-def demo_bot_commands():
-    """Демонстрация команд бота"""
-    print("\n\n🤖 ДЕМОНСТРАЦИЯ КОМАНД TELEGRAM-БОТА")
+async def test_ticket_formatter():
+    """Тестирование форматтера билетов"""
+    print("🎨 Тестирование форматтера билетов...")
     print("=" * 60)
     
-    commands = [
-        ("/start", "Запуск бота и приветствие", "Показывает приветствие и список команд"),
-        ("/help", "Справка по командам", "Подробная информация о всех возможностях бота"),
-        ("/search 2025-01-15", "Поиск рейсов на дату", "Найти все рейсы на указанную дату"),
-        ("/today", "Рейсы на сегодня", "Показать рейсы на текущий день"),
-        ("/tomorrow", "Рейсы на завтра", "Показать рейсы на завтрашний день"),
-        ("/subscribe 2025-01-15", "Подписка на уведомления", "Получать уведомления о рейсах на дату"),
-        ("/unsubscribe", "Отписка от уведомлений", "Перестать получать уведомления")
-    ]
-    
-    for cmd, desc, details in commands:
-        print(f"🔹 {cmd}")
-        print(f"   📝 {desc}")
-        print(f"   💡 {details}")
-        print()
-
-def demo_monitoring_features():
-    """Демонстрация возможностей мониторинга"""
-    print("🔔 ВОЗМОЖНОСТИ МОНИТОРИНГА")
-    print("=" * 60)
-    
-    features = [
-        ("Автоматический мониторинг", "Проверка рейсов каждые 30 минут (настраивается)"),
-        ("Умные уведомления", "Уведомления только при наличии свободных мест"),
-        ("Пороговые значения", "Уведомления при количестве мест ≥ 5 (настраивается)"),
-        ("Группировка подписок", "Оптимизация запросов для нескольких пользователей"),
-        ("Персональные подписки", "Каждый пользователь может подписаться на свою дату"),
-        ("Логирование", "Полная история работы бота сохраняется в файлы"),
-        ("Обработка ошибок", "Graceful обработка сбоев сайта и сети")
-    ]
-    
-    for title, description in features:
-        print(f"✨ {title}")
-        print(f"   {description}")
-        print()
-
-def demo_technical_info():
-    """Техническая информация"""
-    print("⚙️ ТЕХНИЧЕСКАЯ ИНФОРМАЦИЯ")
-    print("=" * 60)
-    
-    tech_info = [
-        ("Язык программирования", "Python 3.13+"),
-        ("Telegram API", "python-telegram-bot 22.2"),
-        ("HTTP клиент", "aiohttp для асинхронных запросов"),
-        ("HTML парсинг", "BeautifulSoup4 для извлечения данных"),
-        ("Планировщик задач", "APScheduler для периодического мониторинга"),
-        ("Конфигурация", "python-dotenv для управления настройками"),
-        ("Асинхронность", "Полная поддержка async/await"),
-        ("Логирование", "Встроенный модуль logging с ротацией файлов")
-    ]
-    
-    for component, description in tech_info:
-        print(f"🔧 {component}: {description}")
-    
-    print()
-    print("📁 СТРУКТУРА ФАЙЛОВ:")
-    files = [
-        ("telegram_bot.py", "Основной код Telegram-бота"),
-        ("final_parser.py", "Парсер сайта маршруточки"),
-        ("run_bot.py", "Launcher с логированием"),
-        ("bot_utils.py", "Утилиты для тестирования"),
-        ("test_bot.py", "Тестирование подключения к Telegram"),
-        (".env", "Конфигурационные переменные"),
-        ("logs/", "Директория с логами работы бота")
-    ]
-    
-    for filename, description in files:
-        print(f"📄 {filename} - {description}")
+    try:
+        from ticket_formatter import TicketFormatter
+        
+        # Тестовые данные билета
+        test_ticket = {
+            'route': 'Минск → Островец',
+            'date': '10.07.2025',
+            'time': '08:30',
+            'trip_number': 'M101',
+            'seat': '15A',
+            'price': '12.50 BYN',
+            'departure': 'Минск, Автовокзал Восточный',
+            'arrival': 'Островец, Автостанция',
+            'status': 'confirmed',
+            'booking_number': 'MB2025071001',
+            'contact': '+375293541000'
+        }
+        
+        print("🎫 Пример билета:")
+        formatted_ticket = TicketFormatter.format_ticket(test_ticket)
+        print(formatted_ticket)
+        
+        # Тестовые данные профиля
+        test_profile = {
+            'name': 'Иван Иванов',
+            'phone': '+375299605390',
+            'email': 'ivan@example.com',
+            'balance': '25.00 BYN',
+            'url': 'https://билет.маршруточка.бел/profile',
+            'timestamp': '2025-07-04T12:00:00'
+        }
+        
+        print("\n👤 Пример профиля:")
+        formatted_profile = TicketFormatter.format_profile_info(test_profile)
+        print(formatted_profile)
+        
+        # Тестовые данные бронирований
+        test_bookings = [
+            {
+                'route': 'Минск → Островец',
+                'date': '10.07.2025',
+                'time': '08:30',
+                'price': '12.50 BYN',
+                'status': 'confirmed',
+                'booking_number': 'MB2025071001'
+            },
+            {
+                'route': 'Островец → Минск',
+                'date': '12.07.2025',
+                'time': '17:45',
+                'price': '12.50 BYN',
+                'status': 'pending',
+                'booking_number': 'MB2025071002'
+            }
+        ]
+        
+        print("\n📋 Пример списка бронирований:")
+        formatted_bookings = TicketFormatter.format_booking_list(test_bookings)
+        print(formatted_bookings)
+        
+        # Тестовые данные маршрутов
+        test_routes = [
+            {
+                'route': 'Минск → Островец',
+                'departure_time': '08:30',
+                'arrival_time': '10:15',
+                'duration': '1ч 45м',
+                'price': '12.50 BYN',
+                'available_seats': '8',
+                'vehicle_type': 'Mercedes Sprinter',
+                'carrier': 'ИП Петров А.А.',
+                'stops': ['Молодечно', 'Сморгонь']
+            },
+            {
+                'route': 'Минск → Островец',
+                'departure_time': '14:20',
+                'arrival_time': '16:05',
+                'duration': '1ч 45м',
+                'price': '12.50 BYN',
+                'available_seats': '12',
+                'vehicle_type': 'Iveco Daily'
+            }
+        ]
+        
+        print("\n🚌 Пример результатов поиска:")
+        formatted_routes = TicketFormatter.format_route_search_results(test_routes)
+        print(formatted_routes)
+        
+        print("\n✅ Все тесты форматтера выполнены успешно!")
+        
+    except ImportError as e:
+        print(f"❌ Ошибка импорта: {e}")
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
 
 async def main():
-    """Главная демонстрационная функция"""
-    print("🚌 ДЕМОНСТРАЦИЯ TELEGRAM-БОТА МОНИТОРИНГА МАРШРУТОЧКИ")
-    print("🌐 Сайт: https://билет.маршруточка.бел")
-    print("🛣️  Направления: Минск ⇄ Островец")
-    print("=" * 80)
+    """Главная функция демо"""
+    print("🚀 Демонстрация новых функций MarhrutochkaTG")
+    print("=" * 60)
     
-    # Демонстрация поиска рейсов
-    await demo_search_routes()
+    # Тестируем форматтер (не требует интернет)
+    await test_ticket_formatter()
     
-    # Демонстрация команд бота
-    demo_bot_commands()
+    # Спрашиваем пользователя о тестировании аутентификации
+    print("\n" + "=" * 60)
+    test_auth = input("🤔 Хотите протестировать систему аутентификации? (y/N): ").lower()
     
-    # Демонстрация мониторинга
-    demo_monitoring_features()
+    if test_auth in ['y', 'yes', 'да']:
+        print("\n⚠️  ВНИМАНИЕ: Для тестирования будут использованы реальные учетные данные")
+        print("📱 Номер: +375299605390")
+        print("🔑 Пароль: Zxcvbnm,1")
+        print("\n🌐 Будет выполнено подключение к сайту билет.маршруточка.бел")
+        
+        confirm = input("\n✅ Продолжить? (y/N): ").lower()
+        if confirm in ['y', 'yes', 'да']:
+            await test_auth_manager()
+        else:
+            print("⏹️  Тестирование аутентификации отменено")
     
-    # Техническая информация
-    demo_technical_info()
-    
-    print("\n" + "=" * 80)
-    print("🎯 ГОТОВО К ИСПОЛЬЗОВАНИЮ!")
-    print("🚀 Для запуска бота выполните: python run_bot.py")
-    print("🧪 Для тестирования выполните: python test_bot.py")
-    print("💡 Для получения справки выполните: python bot_utils.py --help")
-    print("=" * 80)
+    print("\n" + "=" * 60)
+    print("🎉 Демонстрация завершена!")
+    print("\n💡 Следующие шаги:")
+    print("   1. Установите Playwright браузеры: playwright install chromium")
+    print("   2. Настройте .env файл с токеном бота")
+    print("   3. Запустите бота: python main.py")
+    print("   4. Протестируйте новые команды: /login, /profile, /bookings")
 
 if __name__ == "__main__":
     asyncio.run(main())

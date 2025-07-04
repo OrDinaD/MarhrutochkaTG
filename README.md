@@ -122,7 +122,7 @@ python main.py
 ### Демонстрация функций:
 ```bash
 # Запуск демонстрационного скрипта
-python scripts/demo_new.py
+python scripts/demo.py
 ```
 
 Скрипт покажет:
@@ -142,7 +142,8 @@ MarhrutochkaTG/
 │   ├── ticket_formatter.py    # Форматирование билетов
 │   └── __init__.py
 ├── scripts/                    # Вспомогательные скрипты
-│   ├── demo_new.py            # Демонстрация функций
+│   ├── demo.py                # Демонстрация функций
+│   ├── start_bot.sh           # Скрипт запуска бота
 │   └── activate_env.sh        # Активация окружения
 ├── docs/                       # Документация
 │   ├── USER_GUIDE.md          # Руководство пользователя

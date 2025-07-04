@@ -23,7 +23,6 @@ from telegram.ext import (
     filters,
     ContextTypes,
     ConversationHandler,
-    PTBUserWarning,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -39,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Игнорируем предупреждения от python-telegram-bot о per_message
-warnings.filterwarnings("ignore", category=PTBUserWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Отключаем подробные сообщения от httpx, используемого библиотекой telegram
 logging.getLogger("httpx").setLevel(logging.WARNING)

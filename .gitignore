@@ -48,6 +48,33 @@ temp/
 .idea/
 *.swp
 *.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Мониторинги (локальные данные)
+monitors.json
+
+# Скриншоты и временные файлы
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+marsha_*.py
+*_report.json
+*_exploration_*
+*REPORT*.md
+*STATUS*.md
+*SUMMARY*.md
+*CLEANUP*.md
 *~
 
 # Кеш и временные файлы
