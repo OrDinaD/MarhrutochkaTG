@@ -5,18 +5,23 @@
 
 import asyncio
 import os
+import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения
 load_dotenv()
+# Ensure project root is on sys.path for importing src
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
 async def test_parser():
     """Тестирование парсера"""
     print("🔍 Тестирование парсера...")
     
     try:
-        from final_parser import FinalMarshrutochkaParser
+        from src.parser import FinalMarshrutochkaParser
         
         async with FinalMarshrutochkaParser() as parser:
             # Тестируем получение данных на завтра
@@ -54,10 +59,8 @@ async def test_filter_logic():
     print("\n🔧 Тестирование логики фильтрации...")
     
     try:
-        # Импортируем функции из advanced_bot
-        import sys
-        sys.path.append('.')
-        from advanced_bot import check_time_criteria
+        # Импортируем функцию из src.bot
+        from src.bot import check_time_criteria
         
         # Тестовые данные
         test_route = {
@@ -122,8 +125,8 @@ def test_bot_config():
     
     # Проверяем файлы
     required_files = [
-        'advanced_bot.py',
-        'final_parser.py', 
+        'src/bot.py',
+        'src/parser.py',
         'requirements.txt',
         '.env'
     ]
