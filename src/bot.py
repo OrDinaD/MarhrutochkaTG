@@ -4,6 +4,7 @@
 """
 
 import logging
+import warnings
 import os
 import asyncio
 import json
@@ -13,7 +14,17 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram.error import Conflict
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+    ConversationHandler,
+    PTBUserWarning,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Загружаем переменные окружения
@@ -26,6 +37,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
+
+# Игнорируем предупреждения от python-telegram-bot о per_message
+warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 # Отключаем подробные сообщения от httpx, используемого библиотекой telegram
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -65,6 +79,10 @@ def save_active_monitors():
 
 # Загружаем существующие мониторинги при импорте модуля
 load_active_monitors()
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle errors from telegram.ext and log them."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
 
 async def init_parser():
     """Инициализация парсера"""
@@ -1175,6 +1193,7 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
+    app.add_error_handler(error_handler)
     
     print("✅ Бот готов к запуску!")
     print("💬 Напишите /start для начала")
@@ -1187,6 +1206,8 @@ def main():
         app.run_polling(drop_pending_updates=True)
     except KeyboardInterrupt:
         print("\n👋 Остановка бота...")
+    except Conflict:
+        print("💥 Бот уже запущен в другом месте")
     except Exception as e:
         print(f"💥 Ошибка: {e}")
     finally:
