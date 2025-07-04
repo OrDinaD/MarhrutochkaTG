@@ -56,6 +56,7 @@ scheduler = AsyncIOScheduler()
 active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
 user_auth = {}  # user_id -> auth_status
+application = None  # will hold the Application instance
 DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'monitors.json')
 
 def load_active_monitors():
@@ -545,7 +546,10 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== MONITORING FUNCTIONS ====================
 
-async def check_routes_for_user(user_id: int):
+async def check_routes_for_user(
+    user_id: int,
+    context: Optional[ContextTypes.DEFAULT_TYPE] = None,
+):
     """Проверка рейсов для конкретного пользователя"""
     if user_id not in active_monitors:
         return
@@ -565,7 +569,7 @@ async def check_routes_for_user(user_id: int):
         suitable_routes = filter_routes_by_criteria(routes_data, config)
         
         if suitable_routes:
-            await send_monitoring_notification(user_id, suitable_routes, config)
+            await send_monitoring_notification(user_id, suitable_routes, config, context)
     
     except Exception as e:
         logger.error(f"Ошибка при проверке рейсов для пользователя {user_id}: {e}")
@@ -638,12 +642,15 @@ def check_time_criteria(route, config):
     
     return True
 
-async def send_monitoring_notification(user_id: int, routes: List, config: Dict):
+async def send_monitoring_notification(
+    user_id: int,
+    routes: List,
+    config: Dict,
+    context: Optional[ContextTypes.DEFAULT_TYPE] = None,
+):
     """Отправка уведомления о найденных рейсах"""
     try:
-        from telegram import Bot
-        
-        bot = Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
+        bot = context.bot if context else application.bot
         chat_id = config['chat_id']
         
         direction_text = {
@@ -983,7 +990,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "check_now":
         if user_id in active_monitors:
             await query.answer("🔍 Проверяю рейсы...")
-            await check_routes_for_user(user_id)
+            await check_routes_for_user(user_id, context)
             await query.edit_message_text(
                 "✅ **Проверка завершена**\n\n"
                 "Если найдены подходящие рейсы, вы получите уведомление.",
@@ -1196,6 +1203,8 @@ def main():
         return
     
     app = Application.builder().token(token).post_init(post_init).build()
+    global application
+    application = app
     
     # Настройка ConversationHandler для мониторинга
     monitoring_handler = ConversationHandler(
