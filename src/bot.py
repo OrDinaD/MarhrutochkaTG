@@ -10,9 +10,13 @@ import asyncio
 import json
 import sys
 import re
+import traceback
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
+
+# Загружаем переменные окружения
+load_dotenv()
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.error import Conflict
@@ -34,19 +38,18 @@ except ImportError:
     from requests_auth import RequestsAuthManager
 
 
-# Загружаем переменные окружения
-load_dotenv()
+# Импортируем наш менеджер логирования
+try:
+    from .log_manager import setup_logging
+except ImportError:
+    from log_manager import setup_logging
 
 # Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s:%(name)s:%(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging(logging.INFO)
 
 # Игнорируем предупреждения от python-telegram-bot о per_message
 warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 # Отключаем подробные сообщения от httpx, используемого библиотекой telegram
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -1595,6 +1598,11 @@ def main():
     
     logger.info("🚀 Запуск бота MarhrutochkaTG...")
     
+    # Логируем информацию о версии и окружении
+    logger.info(f"Версия Python: {sys.version}")
+    logger.info(f"Рабочая директория: {os.getcwd()}")
+    logger.info(f"ID процесса: {os.getpid()}")
+    
     # Создаем приложение
     application = Application.builder().token(token).build()
     
@@ -1633,22 +1641,24 @@ def main():
     except Conflict:
         logger.error("❌ Конфликт: бот уже запущен в другом месте!")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}")
-        import traceback
+        logger.error(f"❌ Критическая ошибка: {e}", exc_info=True)
         traceback.print_exc()
     finally:
         # Graceful shutdown
         try:
             if job_queue:
+                for job in job_queue.jobs():
+                    job.schedule_removal()
                 logger.info("⏰ JobQueue остановлен")
         except Exception as e:
-            logger.error(f"Ошибка при завершении JobQueue: {e}")
+            logger.error(f"Ошибка при завершении JobQueue: {e}", exc_info=True)
 
 if __name__ == "__main__":
     try:
+        logger.info("🚀 Старт главной функции main()")
         main()
     except KeyboardInterrupt:
         logger.info("🛑 Бот остановлен пользователем")
     except Exception as e:
-        logger.error(f"💥 Фатальная ошибка: {e}")
+        logger.error(f"💥 Фатальная ошибка: {e}", exc_info=True)
         sys.exit(1)
