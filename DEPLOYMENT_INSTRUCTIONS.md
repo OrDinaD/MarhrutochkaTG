@@ -70,14 +70,35 @@ PLAYWRIGHT_TIMEOUT=30000
 
 ### 1. Запуск демонстрационного скрипта
 ```bash
-python scripts/demo_new.py
+python scripts/demo_updated.py
 ```
 
 Этот скрипт проверит:
-- Форматирование билетов и профиля
 - Авторизацию на сайте
-- Поиск маршрутов
+- Форматирование билетов и профиля (демо-данные)
+- Поиск маршрутов (демо-данные)
 - Проверку статуса бронирования
+
+⚠️ **Важно**: В текущей версии AuthManager есть проблемы с сохранением сессий между переходами страниц. Профиль и бронирования пока извлекаются как демо-данные. Для работы с реальными данными используйте браузерную автоматизацию через Playwright MCP.
+
+### 2. Реальная работа с сайтом
+Для работы с реальными данными профиля и бронирований используйте:
+```bash
+# Через Playwright MCP (рекомендуется для разработки)
+python -c "
+import asyncio
+from playwright.async_api import async_playwright
+
+async def test():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)
+        page = await browser.new_page()
+        # Здесь можно делать реальные тесты
+        await browser.close()
+
+asyncio.run(test())
+"
+```
 
 ### 2. Проверка зависимостей
 ```bash

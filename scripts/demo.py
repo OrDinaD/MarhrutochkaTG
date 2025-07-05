@@ -24,20 +24,21 @@ async def test_auth_manager():
             print("✅ AuthManager инициализирован")
             
             # Тестовые данные
+            user_id = 12345  # Тестовый ID пользователя
             phone = "+375299605390"
             password = "Zxcvbnm,1"
             
             print(f"\n🔐 Попытка авторизации с номером {phone}...")
             
             # Попытка входа
-            success = await auth.login(phone, password)
+            success = await auth.login(user_id, phone, password)
             
             if success:
                 print("✅ Авторизация успешна!")
                 
                 # Получаем информацию профиля
                 print("\n👤 Получение информации профиля...")
-                profile_info = await auth.get_profile_info()
+                profile_info = await auth.get_profile_info(user_id)
                 
                 formatted_profile = TicketFormatter.format_profile_info(profile_info)
                 print("\n📋 Информация профиля:")
@@ -45,7 +46,7 @@ async def test_auth_manager():
                 
                 # Получаем список бронирований
                 print("\n🎫 Получение списка бронирований...")
-                bookings = await auth.get_bookings()
+                bookings = await auth.get_bookings(user_id)
                 
                 formatted_bookings = TicketFormatter.format_booking_list(bookings)
                 print("\n📋 Список бронирований:")
@@ -53,7 +54,7 @@ async def test_auth_manager():
                 
                 # Тестируем поиск маршрутов
                 print("\n🔍 Тестирование поиска маршрутов...")
-                routes = await auth.search_routes("Минск", "Островец", "2025-07-10")
+                routes = await auth.search_routes(user_id, from_city="Минск", to_city="Островец", date="2025-07-10")
                 
                 formatted_routes = TicketFormatter.format_route_search_results(routes)
                 print("\n🚌 Результаты поиска:")
@@ -61,7 +62,7 @@ async def test_auth_manager():
                 
                 # Тестируем проверку статуса бронирования
                 print("\n📋 Тестирование проверки статуса бронирования...")
-                status = await auth.check_booking_status("TEST12345", "5390")
+                status = await auth.check_booking_status(user_id, "TEST12345", "5390")
                 
                 formatted_status = TicketFormatter.format_booking_status(status)
                 print("\n📊 Статус бронирования:")
