@@ -1036,6 +1036,10 @@ def check_time_criteria(route, config):
     time_range = config['time_range']
     time_type = config['time_type']
     
+    # Если "любое время", то все рейсы подходят
+    if time_range == 'любое время' or time_range == 'any':
+        return True
+        
     # Получаем нужное время из рейса
     if time_type == 'departure':
         route_time = route.get('departure_time', '')
@@ -1052,26 +1056,45 @@ def check_time_criteria(route, config):
         route_hour, route_minute = map(int, route_time.split(':'))
         route_minutes = route_hour * 60 + route_minute
         
-        # Парсим диапазон
-        if '-' in time_range:
+        # Предопределенные диапазоны
+        predefined_ranges = {
+            '05:00-09:00': (5*60, 9*60),  # Утро
+            '09:00-15:00': (9*60, 15*60),  # День
+            '15:00-20:00': (15*60, 20*60),  # Вечер
+            '20:00-05:00': (20*60, 5*60)   # Ночь (через полночь)
+        }
+        
+        # Проверяем, является ли диапазон предопределенным
+        if time_range in predefined_ranges:
+            start_minutes, end_minutes = predefined_ranges[time_range]
+        # Парсим пользовательский диапазон
+        elif '-' in time_range:
             start_time, end_time = time_range.split('-')
             start_hour, start_minute = map(int, start_time.split(':'))
             end_hour, end_minute = map(int, end_time.split(':'))
             
             start_minutes = start_hour * 60 + start_minute
             end_minutes = end_hour * 60 + end_minute
+        else:
+            # Неизвестный формат, по умолчанию считаем, что подходит
+            logger.warning(f"Неизвестный формат диапазона времени: {time_range}")
+            return True
             
-            # Проверяем попадание в диапазон
-            if start_minutes <= end_minutes:
-                return start_minutes <= route_minutes <= end_minutes
-            else:
-                # Диапазон через полночь
-                return route_minutes >= start_minutes or route_minutes <= end_minutes
+        # Проверяем попадание в диапазон
+        if start_minutes <= end_minutes:
+            # Обычный диапазон (например, 09:00-17:00)
+            return start_minutes <= route_minutes <= end_minutes
+        else:
+            # Диапазон через полночь (например, 22:00-06:00)
+            return route_minutes >= start_minutes or route_minutes <= end_minutes
     
-    except ValueError:
+    except ValueError as e:
+        logger.error(f"Ошибка при проверке времени: {e}, route_time={route_time}, time_range={time_range}")
+        # При ошибке считаем, что рейс подходит, чтобы не пропустить потенциально подходящий рейс
         return True
-    
-    return True
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при проверке времени: {e}", exc_info=True)
+        return True
 
 async def send_monitoring_notification(
     user_id: int,
@@ -1199,18 +1222,118 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
     
     if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
         try:
-            datetime.strptime(text, '%Y-%m-%d')
-            await update.message.reply_text(f"🔍 **Ищу рейсы на {text}...**", parse_mode='Markdown')
+            # Проверяем валидность даты
+            date_obj = datetime.strptime(text, '%Y-%m-%d')
             
-            await init_parser()
-            routes_data = await parser.get_all_routes(text)
-            message = format_routes_message(routes_data, text)
-            await update.message.reply_text(message, parse_mode='Markdown')
-        except Exception:
-            await update.message.reply_text("❌ **Ошибка поиска**", parse_mode='Markdown')
+            # Проверка на корректность даты (не слишком старая и не слишком далёкая)
+            today = datetime.now()
+            if date_obj < today - timedelta(days=1):
+                await update.message.reply_text(
+                    "❌ **Выбрана прошедшая дата**\n\n"
+                    "Пожалуйста, выберите сегодняшнюю или будущую дату.",
+                    parse_mode='Markdown'
+                )
+                return
+            
+            if date_obj > today + timedelta(days=60):
+                await update.message.reply_text(
+                    "❌ **Выбрана слишком далёкая дата**\n\n"
+                    "Пожалуйста, выберите дату в пределах ближайших 60 дней.",
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # Отправляем сообщение о поиске
+            search_message = await update.message.reply_text(
+                f"🔍 **Ищу рейсы на {text}...**", 
+                parse_mode='Markdown'
+            )
+            
+            # Инициализируем парсер
+            try:
+                await init_parser()
+            except Exception as e:
+                logger.error(f"Ошибка инициализации парсера: {e}", exc_info=True)
+                await update.message.reply_text(
+                    "❌ **Ошибка инициализации системы поиска**\n\n"
+                    "Пожалуйста, попробуйте позже.",
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # Получаем рейсы
+            try:
+                routes_data = await parser.get_all_routes(text)
+                if not routes_data:
+                    await search_message.edit_text(
+                        "❌ **Не удалось получить данные о рейсах**\n\n"
+                        "Возможно, сервер временно недоступен. Пожалуйста, попробуйте позже.",
+                        parse_mode='Markdown'
+                    )
+                    return
+                    
+                if not routes_data.get('success', False):
+                    await search_message.edit_text(
+                        "❌ **Ошибка при получении рейсов**\n\n"
+                        f"Причина: {routes_data.get('error', 'Неизвестная ошибка')}\n\n"
+                        "Пожалуйста, попробуйте позже.",
+                        parse_mode='Markdown'
+                    )
+                    return
+                
+                # Форматируем сообщение с рейсами
+                message = format_routes_message(routes_data, text)
+                
+                # Проверяем, есть ли рейсы
+                minsk_routes = routes_data.get('minsk_to_ostrovets', [])
+                ostrovets_routes = routes_data.get('ostrovets_to_minsk', [])
+                
+                if not minsk_routes and not ostrovets_routes:
+                    await search_message.edit_text(
+                        f"📅 **Рейсы на {text}**\n\n"
+                        "😔 **Рейсов на выбранную дату не найдено**\n\n"
+                        "Попробуйте выбрать другую дату.",
+                        parse_mode='Markdown',
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("🔍 Поиск на другую дату", callback_data="search_routes")
+                        ]])
+                    )
+                    return
+                
+                # Отправляем сообщение с рейсами
+                await search_message.edit_text(
+                    message, 
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔍 Новый поиск", callback_data="search_routes"),
+                        InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                    ]])
+                )
+                
+            except Exception as e:
+                logger.error(f"Ошибка при поиске рейсов: {e}", exc_info=True)
+                await search_message.edit_text(
+                    "❌ **Ошибка при поиске рейсов**\n\n"
+                    "Произошла техническая ошибка. Пожалуйста, попробуйте позже.",
+                    parse_mode='Markdown'
+                )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ **Неверный формат даты**\n\n"
+                "Используйте формат YYYY-MM-DD, например: `2025-07-10`",
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при поиске рейсов: {e}", exc_info=True)
+            await update.message.reply_text(
+                "❌ **Произошла ошибка**\n\n"
+                "Пожалуйста, попробуйте позже или обратитесь к администратору.",
+                parse_mode='Markdown'
+            )
     else:
         await update.message.reply_text(
-            "💡 Отправьте дату в формате **YYYY-MM-DD** или используйте /help",
+            "💡 Отправьте дату в формате **YYYY-MM-DD** или используйте /help\n\n"
+            "Например: `2025-07-10`",
             parse_mode='Markdown'
         )
 
@@ -1307,22 +1430,129 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("date_") and user_id not in user_data_store:
         # Обычный поиск по дате
         selected_date = data.replace("date_", "")
-        await query.edit_message_text(f"🔍 **Ищу рейсы на {selected_date}...**", parse_mode='Markdown')
         
+        # Проверяем валидность даты
         try:
-            await init_parser()
-            routes_data = await parser.get_all_routes(selected_date)
-            message = format_routes_message(routes_data, selected_date)
+            date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
+            today = datetime.now()
             
-            keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]]
-            
+            if date_obj < today - timedelta(days=1):
+                await query.edit_message_text(
+                    "❌ **Выбрана прошедшая дата**\n\n"
+                    "Пожалуйста, выберите сегодняшнюю или будущую дату.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔙 Выбрать другую дату", callback_data="search_routes")
+                    ]]),
+                    parse_mode='Markdown'
+                )
+                return
+                
+            if date_obj > today + timedelta(days=60):
+                await query.edit_message_text(
+                    "❌ **Выбрана слишком далёкая дата**\n\n"
+                    "Пожалуйста, выберите дату в пределах ближайших 60 дней.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("� Выбрать другую дату", callback_data="search_routes")
+                    ]]),
+                    parse_mode='Markdown'
+                )
+                return
+        except ValueError:
             await query.edit_message_text(
-                message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
+                "❌ **Неверный формат даты**\n\n"
+                "Пожалуйста, выберите корректную дату.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 Выбрать другую дату", callback_data="search_routes")
+                ]]),
                 parse_mode='Markdown'
             )
+            return
+        
+        # Отправляем сообщение о поиске
+        await query.edit_message_text(f"�🔍 **Ищу рейсы на {selected_date}...**", parse_mode='Markdown')
+        
+        try:
+            # Инициализируем парсер
+            try:
+                await init_parser()
+            except Exception as e:
+                logger.error(f"Ошибка инициализации парсера: {e}", exc_info=True)
+                await query.edit_message_text(
+                    "❌ **Ошибка инициализации системы поиска**\n\n"
+                    "Пожалуйста, попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                    ]]),
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # Получаем рейсы
+            routes_data = await parser.get_all_routes(selected_date)
+            
+            if not routes_data:
+                await query.edit_message_text(
+                    "❌ **Не удалось получить данные о рейсах**\n\n"
+                    "Возможно, сервер временно недоступен. Пожалуйста, попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                    ]]),
+                    parse_mode='Markdown'
+                )
+                return
+                
+            if not routes_data.get('success', False):
+                await query.edit_message_text(
+                    "❌ **Ошибка при получении рейсов**\n\n"
+                    f"Причина: {routes_data.get('error', 'Неизвестная ошибка')}\n\n"
+                    "Пожалуйста, попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                    ]]),
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # Проверяем, есть ли рейсы
+            minsk_routes = routes_data.get('minsk_to_ostrovets', [])
+            ostrovets_routes = routes_data.get('ostrovets_to_minsk', [])
+            
+            if not minsk_routes and not ostrovets_routes:
+                await query.edit_message_text(
+                    f"📅 **Рейсы на {selected_date}**\n\n"
+                    "😔 **Рейсов на выбранную дату не найдено**\n\n"
+                    "Попробуйте выбрать другую дату.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔍 Поиск на другую дату", callback_data="search_routes")],
+                        [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+                    ]),
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # Форматируем сообщение с рейсами
+            message = format_routes_message(routes_data, selected_date)
+            
+            # Отправляем результаты
+            await query.edit_message_text(
+                message,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔍 Новый поиск", callback_data="search_routes")],
+                    [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+                ]),
+                parse_mode='Markdown'
+            )
+            
         except Exception as e:
-            await query.edit_message_text("❌ **Ошибка при поиске рейсов**", parse_mode='Markdown')
+            logger.error(f"Ошибка при поиске рейсов: {e}", exc_info=True)
+            await query.edit_message_text(
+                "❌ **Ошибка при поиске рейсов**\n\n"
+                "Произошла техническая ошибка. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                ]]),
+                parse_mode='Markdown'
+            )
     
     elif data == "back_to_main":
         # Очищаем данные пользователя при возврате в главное меню
@@ -1602,6 +1832,50 @@ def main():
     logger.info(f"Версия Python: {sys.version}")
     logger.info(f"Рабочая директория: {os.getcwd()}")
     logger.info(f"ID процесса: {os.getpid()}")
+    
+    # Создаем файл блокировки для предотвращения запуска нескольких экземпляров
+    lock_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bot.lock')
+    
+    try:
+        # Проверяем наличие файла блокировки
+        if os.path.exists(lock_file):
+            with open(lock_file, 'r') as f:
+                old_pid = f.read().strip()
+            
+            # Проверяем, существует ли процесс с таким PID
+            try:
+                # На Windows это будет работать по-другому
+                if os.name == 'nt':
+                    import ctypes
+                    kernel32 = ctypes.windll.kernel32
+                    SYNCHRONIZE = 0x00100000
+                    process = kernel32.OpenProcess(SYNCHRONIZE, False, int(old_pid))
+                    if process != 0:
+                        kernel32.CloseHandle(process)
+                        logger.error(f"❌ Бот уже запущен (PID: {old_pid})! Завершаем работу.")
+                        return
+                else:
+                    # На Unix/Linux
+                    os.kill(int(old_pid), 0)
+                    logger.error(f"❌ Бот уже запущен (PID: {old_pid})! Завершаем работу.")
+                    return
+            except (ValueError, OSError):
+                # Процесс не существует, можно перезаписать файл блокировки
+                pass
+        
+        # Создаем новый файл блокировки
+        with open(lock_file, 'w') as f:
+            f.write(str(os.getpid()))
+            
+        # Регистрируем функцию для удаления файла блокировки при завершении
+        import atexit
+        def cleanup_lock():
+            try:
+                if os.path.exists(lock_file):
+                    os.remove(lock_file)
+            except:
+                pass
+        atexit.register(cleanup_lock)
     
     # Создаем приложение
     application = Application.builder().token(token).build()
