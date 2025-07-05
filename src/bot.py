@@ -512,7 +512,7 @@ async def start_login_requests(update: Update, context: ContextTypes.DEFAULT_TYP
     """Начало процесса входа через Requests"""
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        text="Пожалуйста, введите ваш номер телефона (например, 291234567):",
+        text="Пожалуйста, введите ваш номер телефона (например, +375291234567):",
         parse_mode='Markdown'
     )
     return LOGIN_REQUESTS_PHONE
@@ -578,54 +578,120 @@ async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYP
     """Получение профиля пользователя через Requests"""
     user_id = update.effective_user.id
     if user_id not in user_sessions:
-        await update.callback_query.answer("Сначала нужно войти!", show_alert=True)
+        if update.callback_query:
+            await update.callback_query.answer("Сначала нужно войти!", show_alert=True)
         return
 
-    await update.callback_query.answer("Получаю данные профиля...")
+    if update.callback_query:
+        await update.callback_query.answer("Получаю данные профиля...")
     auth_manager = user_sessions[user_id]
     
-    profile_data = auth_manager.get_profile()
-    
-    if profile_data:
-        profile_text = "**👤 Ваш профиль:**\n\n"
-        for key, value in profile_data.items():
-            profile_text += f"**{key.replace('_', ' ').capitalize()}:** {value}\n"
+    try:
+        profile_data = auth_manager.get_profile()
         
-        await update.callback_query.edit_message_text(
-            profile_text,
-            reply_markup=get_main_menu_keyboard(user_id),
-            parse_mode='Markdown'
-        )
-    else:
-        await update.callback_query.answer("Не удалось получить данные профиля.", show_alert=True)
+        if profile_data:
+            profile_text = "**👤 Ваш профиль:**\n\n"
+            for key, value in profile_data.items():
+                profile_text += f"**{key.replace('_', ' ').capitalize()}:** {value}\n"
+            
+            profile_text += "\n💡 Используйте кнопки ниже для навигации."
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    profile_text,
+                    reply_markup=get_main_menu_keyboard(user_id),
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text(
+                    profile_text,
+                    reply_markup=get_main_menu_keyboard(user_id),
+                    parse_mode='Markdown'
+                )
+        else:
+            error_text = "❌ **Не удалось получить данные профиля.**\n\nВозможно, сессия истекла. Попробуйте войти заново."
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    error_text,
+                    reply_markup=get_main_menu_keyboard(user_id),
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text(
+                    error_text,
+                    reply_markup=get_main_menu_keyboard(user_id),
+                    parse_mode='Markdown'
+                )
+    except Exception as e:
+        logger.error(f"Ошибка при получении профиля: {e}")
+        error_text = "❌ **Произошла ошибка при получении профиля.**\n\nПопробуйте позже."
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                error_text,
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                error_text,
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
 
 async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение билетов пользователя через Requests"""
     user_id = update.effective_user.id
     if user_id not in user_sessions:
-        await update.callback_query.answer("Сначала нужно войти!", show_alert=True)
+        if update.callback_query:
+            await update.callback_query.answer("Сначала нужно войти!", show_alert=True)
         return
 
-    await update.callback_query.answer("Получаю список ваших билетов...")
+    if update.callback_query:
+        await update.callback_query.answer("Получаю список ваших билетов...")
     auth_manager = user_sessions[user_id]
     
-    tickets = auth_manager.get_tickets()
-    
-    if tickets:
-        message_text = "**🎫 Ваши активные билеты:**\n\n"
-        for i, ticket in enumerate(tickets, 1):
-            message_text += f"**Билет #{i}:**\n"
-            for key, value in ticket.items():
-                message_text += f"• **{key.replace('_', ' ').capitalize()}:** {value}\n"
-            message_text += "\n"
-    else:
-        message_text = "📭 **У вас нет активных билетов.**\n\n💡 Вы можете забронировать билеты на сайте билет.маршруточка.бел"
+    try:
+        tickets = auth_manager.get_tickets()
+        
+        if tickets:
+            message_text = "**🎫 Ваши активные билеты:**\n\n"
+            for i, ticket in enumerate(tickets, 1):
+                message_text += f"**Билет #{i}:**\n"
+                for key, value in ticket.items():
+                    message_text += f"• **{key.replace('_', ' ').capitalize()}:** {value}\n"
+                message_text += "\n"
+        else:
+            message_text = "📭 **У вас нет активных билетов.**\n\n💡 Вы можете забронировать билеты на сайте билет.маршруточка.бел"
 
-    await update.callback_query.edit_message_text(
-        message_text,
-        reply_markup=get_main_menu_keyboard(user_id),
-        parse_mode='Markdown'
-    )
+        message_text += "\n💡 Используйте кнопки ниже для навигации."
+
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                message_text,
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                message_text,
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при получении билетов: {e}")
+        error_text = "❌ **Произошла ошибка при получении билетов.**\n\nПопробуйте позже."
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                error_text,
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                error_text,
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
 
 async def logout_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Выход из аккаунта"""
@@ -1257,6 +1323,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ **Ошибка при поиске рейсов**", parse_mode='Markdown')
     
     elif data == "back_to_main":
+        # Очищаем данные пользователя при возврате в главное меню
+        if user_id in user_data_store:
+            del user_data_store[user_id]
+            
         text = (
             "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
             "🛣️ **Направления:** Минск ⇄ Островец\n"
@@ -1269,6 +1339,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
+    
+    elif data == "login_requests":
+        # Запускаем процесс входа - это обработается ConversationHandler
+        await start_login_requests(update, context)
+        return LOGIN_REQUESTS_PHONE
+    
+    elif data == "profile_requests":
+        # Вызываем обработчик профиля
+        await get_profile_requests(update, context)
+    
+    elif data == "tickets_requests":
+        # Вызываем обработчик билетов
+        await get_tickets_requests(update, context)
+    
+    elif data == "logout_requests":
+        # Вызываем обработчик выхода
+        await logout_requests(update, context)
     
     elif data == "help":
         await query.edit_message_text(
@@ -1488,10 +1575,7 @@ def register_handlers(application):
     application.add_handler(monitoring_conv_handler)
     application.add_handler(login_requests_conv_handler)
     
-    # Добавляем обработчики кнопок
-    application.add_handler(CallbackQueryHandler(get_profile_requests, pattern="^profile_requests$"))
-    application.add_handler(CallbackQueryHandler(get_tickets_requests, pattern="^tickets_requests$"))
-    application.add_handler(CallbackQueryHandler(logout_requests, pattern="^logout_requests$"))
+    # Добавляем обработчики кнопок (порядок важен!)
     application.add_handler(CallbackQueryHandler(button_callback))
     
     # Обработчик текстовых сообщений

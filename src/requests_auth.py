@@ -535,6 +535,25 @@ class RequestsAuthManager:
         
         return booking if booking else None
     
+    def get_profile(self) -> Dict[str, Any]:
+        """Получить данные профиля (обёртка для get_profile_info)"""
+        return self.get_profile_info()
+    
+    def get_tickets(self) -> List[Dict[str, Any]]:
+        """Получить билеты (обёртка для get_bookings)"""
+        bookings_data = self.get_bookings()
+        return bookings_data.get('bookings', [])
+    
+    @property
+    def is_authenticated(self) -> bool:
+        """Проверить аутентификацию"""
+        return self.authenticated
+    
+    @is_authenticated.setter
+    def is_authenticated(self, value: bool):
+        """Установить статус аутентификации"""
+        self.authenticated = value
+    
     def close(self):
         """Закрыть сессию"""
         self.session.close()
