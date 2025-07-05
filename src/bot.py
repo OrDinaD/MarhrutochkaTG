@@ -25,7 +25,6 @@ from telegram.ext import (
     ConversationHandler,
 )
 from telegram.warnings import PTBUserWarning
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Импортируем новый менеджер аутентификации
 try:
@@ -61,7 +60,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 parser = None
 auth_manager = None
 requests_auth_manager = None # Для нового менеджера
-scheduler = AsyncIOScheduler()
+job_queue = None  # Встроенная очередь заданий PTB
 active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
 user_auth = {}  # user_id -> auth_status (для старого менеджера)
@@ -333,7 +332,11 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Удаляем задачу из планировщика
         try:
-            scheduler.remove_job(f"monitor_{user_id}")
+            if job_queue:
+                # Удаляем существующие задания
+                current_jobs = job_queue.get_jobs_by_name(f"monitor_{user_id}")
+                for job in current_jobs:
+                    job.schedule_removal()
         except:
             pass
         
@@ -731,14 +734,14 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
         save_active_monitors()
         
         # Добавляем задачу в планировщик
-        scheduler.add_job(
-            check_routes_for_user,
-            'interval',
-            minutes=5,
-            id=f"monitor_{user_id}",
-            args=[user_id],
-            replace_existing=True
-        )
+        if job_queue:
+            job_queue.run_repeating(
+                check_routes_for_user,
+                interval=300,  # 5 минут в секундах
+                first=10,      # Первый запуск через 10 секунд
+                name=f"monitor_{user_id}",
+                data=user_id
+            )
         
         await query.edit_message_text(
             "🎉 **Мониторинг запущен!**\n\n"
@@ -826,11 +829,9 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== MONITORING FUNCTIONS ====================
 
-async def check_routes_for_user(
-    user_id: int,
-    context: Optional[ContextTypes.DEFAULT_TYPE] = None,
-):
+async def check_routes_for_user(context: ContextTypes.DEFAULT_TYPE):
     """Проверка рейсов для конкретного пользователя"""
+    user_id = context.job.data
     if user_id not in active_monitors:
         return
     
@@ -1127,7 +1128,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Удаляем задачу из планировщика
             try:
-                scheduler.remove_job(f"monitor_{user_id}")
+                if job_queue:
+                    # Удаляем существующие задания
+                    current_jobs = job_queue.get_jobs_by_name(f"monitor_{user_id}")
+                    for job in current_jobs:
+                        job.schedule_removal()
             except:
                 pass
             
@@ -1346,7 +1351,79 @@ async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ==================== MAIN APPLICATION ====================
 
-async def main():
+def register_handlers(application):
+    """Регистрация всех обработчиков"""
+    # Настройка ConversationHandler для мониторинга
+    monitoring_conv_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(start_monitoring_conversation, pattern="^setup_monitoring$"),
+        ],
+        states={
+            CHOOSE_DATE: [
+                CallbackQueryHandler(handle_date_choice),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
+            ],
+            CHOOSE_DIRECTION: [
+                CallbackQueryHandler(handle_direction_choice),
+            ],
+            CHOOSE_TIME_TYPE: [
+                CallbackQueryHandler(handle_time_type_choice),
+            ],
+            CHOOSE_TIME_RANGE: [
+                CallbackQueryHandler(handle_time_range_choice),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
+            ],
+            CONFIRM_MONITORING: [
+                CallbackQueryHandler(handle_monitoring_confirmation),
+            ],
+        },
+        fallbacks=[
+            CallbackQueryHandler(handle_main_menu, pattern="^back_to_main$"),
+            CommandHandler('start', start),
+        ],
+        per_message=False,
+    )
+
+    # Настройка ConversationHandler для входа через Requests
+    login_requests_conv_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(start_login_requests, pattern="^login_requests$"),
+        ],
+        states={
+            LOGIN_REQUESTS_PHONE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_requests)
+            ],
+            LOGIN_REQUESTS_PASSWORD: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_password_requests)
+            ],
+        },
+        fallbacks=[
+            CommandHandler('start', start),
+        ],
+        per_message=False,
+    )
+
+    # Добавляем обработчики
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("monitoring", monitoring_command))
+    
+    # Добавляем ConversationHandlers
+    application.add_handler(monitoring_conv_handler)
+    application.add_handler(login_requests_conv_handler)
+    
+    # Добавляем обработчики кнопок
+    application.add_handler(CallbackQueryHandler(get_profile_requests, pattern="^profile_requests$"))
+    application.add_handler(CallbackQueryHandler(get_tickets_requests, pattern="^tickets_requests$"))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    
+    # Обработчик текстовых сообщений
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
+    
+    # Обработчик ошибок
+    application.add_error_handler(error_handler)
+
+def main():
     """Главная функция запуска бота"""
     global application
     
@@ -1358,120 +1435,56 @@ async def main():
     
     logger.info("🚀 Запуск бота MarhrutochkaTG...")
     
+    # Создаем приложение
+    application = Application.builder().token(token).build()
+    
     try:
-        # Создаем приложение
-        application = Application.builder().token(token).build()
+        # Регистрируем обработчики
+        register_handlers(application)
         
-        # Настройка ConversationHandler для мониторинга
-        monitoring_conv_handler = ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(start_monitoring_conversation, pattern="^setup_monitoring$"),
-            ],
-            states={
-                CHOOSE_DATE: [
-                    CallbackQueryHandler(handle_date_choice),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
-                ],
-                CHOOSE_DIRECTION: [
-                    CallbackQueryHandler(handle_direction_choice),
-                ],
-                CHOOSE_TIME_TYPE: [
-                    CallbackQueryHandler(handle_time_type_choice),
-                ],
-                CHOOSE_TIME_RANGE: [
-                    CallbackQueryHandler(handle_time_range_choice),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
-                ],
-                CONFIRM_MONITORING: [
-                    CallbackQueryHandler(handle_monitoring_confirmation),
-                ],
-            },
-            fallbacks=[
-                CallbackQueryHandler(handle_main_menu, pattern="^back_to_main$"),
-                CommandHandler('start', start),
-            ],
-            per_message=False,
-        )
-
-        # Настройка ConversationHandler для входа через Requests
-        login_requests_conv_handler = ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(start_login_requests, pattern="^login_requests$"),
-            ],
-            states={
-                LOGIN_REQUESTS_PHONE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_requests)
-                ],
-                LOGIN_REQUESTS_PASSWORD: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_password_requests)
-                ],
-            },
-            fallbacks=[
-                CommandHandler('start', start),
-            ],
-            per_message=False,
-        )
-
-        # Добавляем обработчики
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("monitoring", monitoring_command))
-        
-        # Добавляем ConversationHandlers
-        application.add_handler(monitoring_conv_handler)
-        application.add_handler(login_requests_conv_handler)
-        
-        # Добавляем обработчики кнопок
-        application.add_handler(CallbackQueryHandler(get_profile_requests, pattern="^profile_requests$"))
-        application.add_handler(CallbackQueryHandler(get_tickets_requests, pattern="^tickets_requests$"))
-        application.add_handler(CallbackQueryHandler(button_callback))
-        
-        # Обработчик текстовых сообщений
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
-        
-        # Обработчик ошибок
-        application.add_error_handler(error_handler)
+        # Получаем job_queue
+        global job_queue
+        job_queue = application.job_queue
         
         # Загружаем существующие мониторинги
         load_active_monitors()
         logger.info(f"📊 Загружены мониторинги для {len(active_monitors)} пользователей")
         
-        # Запускаем планировщик
-        scheduler.start()
-        logger.info("⏰ Планировщик запущен")
-        
         # Восстанавливаем активные мониторинги
         for user_id, config in active_monitors.items():
             try:
-                scheduler.add_job(
+                job_queue.run_repeating(
                     check_routes_for_user,
-                    'interval',
-                    minutes=5,
-                    id=f"monitor_{user_id}",
-                    args=[user_id],
-                    replace_existing=True
+                    interval=300,  # 5 минут в секундах
+                    first=10,      # Первый запуск через 10 секунд
+                    name=f"monitor_{user_id}",
+                    data=user_id
                 )
                 logger.info(f"🔄 Восстановлен мониторинг для пользователя {user_id}")
             except Exception as e:
                 logger.error(f"❌ Ошибка восстановления мониторинга для {user_id}: {e}")
         
-        # Запускаем бота
+        # Запускаем бота (планировщик запустится автоматически)
         logger.info("🤖 Бот запущен успешно!")
-        await application.run_polling(drop_pending_updates=True)
+        application.run_polling(drop_pending_updates=True)
         
     except Conflict:
         logger.error("❌ Конфликт: бот уже запущен в другом месте!")
     except Exception as e:
         logger.error(f"❌ Критическая ошибка: {e}")
-        raise
+        import traceback
+        traceback.print_exc()
     finally:
-        if scheduler.running:
-            scheduler.shutdown()
-            logger.info("⏰ Планировщик остановлен")
+        # Graceful shutdown
+        try:
+            if job_queue:
+                logger.info("⏰ JobQueue остановлен")
+        except Exception as e:
+            logger.error(f"Ошибка при завершении JobQueue: {e}")
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         logger.info("🛑 Бот остановлен пользователем")
     except Exception as e:
