@@ -9,6 +9,7 @@ import os
 import asyncio
 import json
 import sys
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
@@ -931,7 +932,6 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_state = context.user_data.get('state')
     
     # Ввод даты
-    import re
     if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
         try:
             datetime.strptime(text, '%Y-%m-%d')
@@ -1194,7 +1194,6 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
     """Обычный поиск рейсов по дате"""
     text = update.message.text.strip()
     
-    import re
     if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
         try:
             datetime.strptime(text, '%Y-%m-%d')
