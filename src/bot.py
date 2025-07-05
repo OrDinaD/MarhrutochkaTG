@@ -352,769 +352,6 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message_text,
                 parse_mode='Markdown'
             )
-
-def get_main_menu_keyboard(user_id: int):
-    """Возвращает клавиатуру главного меню в зависимости от статуса аутентификации."""
-    keyboard = [
-        [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
-        [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
-        [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")]
-    ]
-
-    if user_id in user_sessions:
-        # Пользователь вошел через Requests
-        keyboard.extend([
-            [InlineKeyboardButton("👤 Мой профиль (Requests)", callback_data="profile_requests")],
-            [InlineKeyboardButton("🎫 Мои билеты (Requests)", callback_data="tickets_requests")]
-        ])
-    else:
-        # Пользователь не вошел
-        keyboard.append([InlineKeyboardButton("🔒 Войти (Requests API)", callback_data="login_requests")])
-
-    keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help")])
-    return InlineKeyboardMarkup(keyboard)
-
-# ==================== CONVERSATION HANDLERS ====================
-
-async def start_monitoring_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало настройки мониторинга"""
-    user_id = update.effective_user.id
-    
-    # Инициализируем данные пользователя
-    user_data_store[user_id] = {}
-    
-    text = (
-        "🔔 **Настройка мониторинга рейсов**\n\n"
-        "Я буду проверять появление мест каждые 5 минут и уведомлять вас!\n\n"
-        "📅 **Шаг 1:** Выберите дату поездки:"
-    )
-    
-    # Проверяем, это callback query или обычное сообщение
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            text,
-            reply_markup=get_date_keyboard(),
-            parse_mode='Markdown'
-        )
-    else:
-        await update.message.reply_text(
-            text,
-            reply_markup=get_date_keyboard(),
-            parse_mode='Markdown'
-        )
-    
-    return CHOOSE_DATE
-
-async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора даты"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    data = query.data
-    
-    if data.startswith("date_"):
-        selected_date = data.replace("date_", "")
-        user_data_store[user_id]['date'] = selected_date
-        
-        await query.edit_message_text(
-            f"✅ **Выбрана дата:** {selected_date}\n\n"
-            "🛣️ **Шаг 2:** Выберите направление:",
-            reply_markup=get_direction_keyboard(),
-            parse_mode='Markdown'
-        )
-        
-        return CHOOSE_DIRECTION
-    
-    elif data == "custom_date":
-        await query.edit_message_text(
-            "📅 **Введите дату в формате YYYY-MM-DD**\n\n"
-            "Например: `2025-01-15`\n\n"
-            "Или нажмите кнопку ниже для возврата:",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 Выбрать из списка", callback_data="back_to_date_list")
-            ]]),
-            parse_mode='Markdown'
-        )
-        
-        return CHOOSE_DATE
-    
-    elif data == "back_to_main":
-        # Очищаем данные пользователя и выходим из конversation
-        if user_id in user_data_store:
-            del user_data_store[user_id]
-        
-        keyboard = [
-            [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
-            [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
-            [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")],
-            [InlineKeyboardButton("❓ Помощь", callback_data="help")]
-        ]
-        
-        await query.edit_message_text(
-            "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
-            "🛣️ **Направления:** Минск ⇄ Островец\n"
-            "🌐 **Источник:** билет.маршруточка.бел\n\n"
-            "💡 **Выберите действие:**",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
-        )
-        
-        return ConversationHandler.END
-    
-    return CHOOSE_DATE
-
-async def start_login_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало процесса входа через Requests"""
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text(
-        text="Пожалуйста, введите ваш номер телефона (например, 291234567):",
-        parse_mode='Markdown'
-    )
-    return LOGIN_REQUESTS_PHONE
-
-async def handle_phone_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка ввода телефона для входа через Requests"""
-    phone = update.message.text
-    user_id = update.effective_user.id
-    context.user_data['phone'] = phone
-    
-    await update.message.reply_text("Теперь введите ваш пароль:")
-    return LOGIN_REQUESTS_PASSWORD
-
-async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка пароля и попытка входа через Requests"""
-    password = update.message.text
-    user_id = update.effective_user.id
-    phone = context.user_data.get('phone')
-
-    if not phone:
-        await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте снова, нажав /start.")
-        return ConversationHandler.END
-
-    await update.message.reply_text("Выполняю вход... Это может занять несколько секунд.")
-
-    # Создаем новый экземпляр менеджера для этого пользователя
-    auth_manager = RequestsAuthManager()
-    
-    # Выполняем вход
-    success = auth_manager.login(phone, password)
-
-    if success:
-        user_sessions[user_id] = auth_manager
-        await update.message.reply_text(
-            "🎉 **Вход выполнен успешно!**\n\nТеперь вы можете просматривать свой профиль и билеты.",
-            reply_markup=get_main_menu_keyboard(user_id),
-            parse_mode='Markdown'
-        )
-    else:
-        await update.message.reply_text(
-            "❌ **Ошибка входа.**\n\nПожалуйста, проверьте ваш телефон и пароль и попробуйте снова.",
-            reply_markup=get_main_menu_keyboard(user_id),
-            parse_mode='Markdown'
-        )
-    
-    # Очищаем временные данные
-    del context.user_data['phone']
-    
-    return ConversationHandler.END
-
-async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение профиля пользователя через Requests"""
-    user_id = update.effective_user.id
-    if user_id not in user_sessions:
-        await update.callback_query.answer("Сначала нужно войти!", show_alert=True)
-        return
-
-    await update.callback_query.answer("Получаю данные профиля...")
-    auth_manager = user_sessions[user_id]
-    
-    profile_data = auth_manager.get_profile()
-    
-    if profile_data:
-        profile_text = "**👤 Ваш профиль:**\n\n"
-        for key, value in profile_data.items():
-            profile_text += f"**{key.replace('_', ' ').capitalize()}:** {value}\n"
-        
-        await update.callback_query.edit_message_text(
-            profile_text,
-            reply_markup=get_main_menu_keyboard(user_id),
-            parse_mode='Markdown'
-        )
-    else:
-        await update.callback_query.answer("Не удалось получить данные профиля.", show_alert=True)
-
-async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение билетов пользователя через Requests"""
-    user_id = update.effective_user.id
-    if user_id not in user_sessions:
-        await update.callback_query.answer("Сначала нужно войти!", show_alert=True)
-        return
-
-    await update.callback_query.answer("Получаю список ваших билетов...")
-    auth_manager = user_sessions[user_id]
-    
-    tickets = auth_manager.get_tickets()
-    
-    if tickets:
-        message_text = "**🎫 Ваши активные билеты:**\n\n"
-        for ticket in tickets:
-            message_text += "---\n"
-            for key, value in ticket.items():
-                message_text += f"**{key.replace('_', ' ').capitalize()}:** {value}\n"
-            message_text += "\n"
-    else:
-        message_text = "У вас нет активных билетов."
-
-    await update.callback_query.edit_message_text(
-        message_text,
-        reply_markup=get_main_menu_keyboard(user_id),
-        parse_mode='Markdown'
-    )
-
-
-async def handle_direction_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора направления"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    data = query.data
-    
-    if data.startswith("dir_"):
-        direction = data.replace("dir_", "")
-        user_data_store[user_id]['direction'] = direction
-        
-        direction_text = {
-            "minsk_ostrovets": "Минск → Островец",
-            "ostrovets_minsk": "Островец → Минск", 
-            "both": "Оба направления"
-        }.get(direction, direction)
-        
-        await query.edit_message_text(
-            f"✅ **Направление:** {direction_text}\n\n"
-            "⏰ **Шаг 3:** Что важнее - время отправления или прибытия?",
-            reply_markup=get_time_type_keyboard(),
-            parse_mode='Markdown'
-        )
-        
-        return CHOOSE_TIME_TYPE
-    
-    elif data == "back_to_date":
-        await query.edit_message_text(
-            "🔔 **Настройка мониторинга рейсов**\n\n"
-            "Я буду проверять появление мест каждые 5 минут и уведомлять вас!\n\n"
-            "📅 **Шаг 1:** Выберите дату поездки:",
-            reply_markup=get_date_keyboard(),
-            parse_mode='Markdown'
-        )
-        
-        return CHOOSE_DATE
-    
-    return CHOOSE_DIRECTION
-
-async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора типа времени"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    data = query.data
-    
-    if data.startswith("time_"):
-        time_type = data.replace("time_", "")
-        user_data_store[user_id]['time_type'] = time_type
-        
-        time_text = {
-            "departure": "время отправления",
-            "arrival": "время прибытия",
-            "any": "любое время"
-        }.get(time_type, time_type)
-        
-        if time_type == "any":
-            # Если любое время, пропускаем выбор диапазона
-            user_data_store[user_id]['time_range'] = "любое время"
-            
-            config_text = format_monitor_config(user_data_store[user_id])
-            
-            await query.edit_message_text(
-                f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
-                "❓ **Запустить мониторинг?**",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Да, запустить!", callback_data="confirm_yes")],
-                    [InlineKeyboardButton("❌ Нет, изменить", callback_data="confirm_no")],
-                    [InlineKeyboardButton("🔙 Время", callback_data="back_to_time_type")]
-                ]),
-                parse_mode='Markdown'
-            )
-            
-            return CONFIRM_MONITORING
-        else:
-            await query.edit_message_text(
-                f"✅ **Критерий:** {time_text}\n\n"
-                "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
-                reply_markup=get_time_range_keyboard(time_type),
-                parse_mode='Markdown'
-            )
-            
-            return CHOOSE_TIME_RANGE
-    
-    elif data == "back_to_direction":
-        direction_text = {
-            "minsk_ostrovets": "Минск → Островец",
-            "ostrovets_minsk": "Островец → Минск", 
-            "both": "Оба направления"
-        }.get(user_data_store[user_id].get('direction', ''), user_data_store[user_id].get('direction', ''))
-        
-        await query.edit_message_text(
-            f"✅ **Направление:** {direction_text}\n\n"
-            "🛣️ **Шаг 2:** Выберите направление:",
-            reply_markup=get_direction_keyboard(),
-            parse_mode='Markdown'
-        )
-        
-        return CHOOSE_DIRECTION
-    
-    return CHOOSE_TIME_TYPE
-
-async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора диапазона времени"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    data = query.data
-    
-    if data.startswith("range_"):
-        time_range = data.replace("range_", "")
-        
-        if time_range == "custom":
-            await query.edit_message_text(
-                "🕐 **Введите диапазон времени в формате ЧЧ:ММ-ЧЧ:ММ**\n\n"
-                "Примеры:\n"
-                "• `07:00-09:00` - с 7 до 9 утра\n"
-                "• `17:30-19:30` - с 17:30 до 19:30\n\n"
-                "Или нажмите кнопку ниже:",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Выбрать из списка", callback_data="back_to_range_list")
-                ]]),
-                parse_mode='Markdown'
-            )
-            
-            return CHOOSE_TIME_RANGE
-        else:
-            user_data_store[user_id]['time_range'] = time_range
-            
-            config_text = format_monitor_config(user_data_store[user_id])
-            
-            await query.edit_message_text(
-                f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
-                "❓ **Запустить мониторинг?**",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Да, запустить!", callback_data="confirm_yes")],
-                    [InlineKeyboardButton("❌ Нет, изменить", callback_data="confirm_no")],
-                    [InlineKeyboardButton("🔙 Диапазон времени", callback_data="back_to_time_range")]
-                ]),
-                parse_mode='Markdown'
-            )
-            
-            return CONFIRM_MONITORING
-
-async def handle_monitoring_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка подтверждения мониторинга"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    data = query.data
-    
-    if data == "confirm_yes":
-        # Запускаем мониторинг
-        config = user_data_store[user_id].copy()
-        config['user_id'] = user_id
-        config['chat_id'] = query.message.chat_id
-        config['created_at'] = datetime.now().isoformat()
-        
-        active_monitors[user_id] = config
-        save_active_monitors()
-        
-        # Добавляем задачу в планировщик
-        scheduler.add_job(
-            check_routes_for_user,
-            'interval',
-            minutes=5,
-            id=f"monitor_{user_id}",
-            args=[user_id],
-            replace_existing=True
-        )
-        
-        await query.edit_message_text(
-            "🎉 **Мониторинг запущен!**\n\n"
-            f"{format_monitor_config(config)}\n\n"
-            "✅ Я буду проверять наличие мест каждые 5 минут\n"
-            "📱 Уведомления придут как только появятся подходящие рейсы\n\n"
-            "💡 Для управления мониторингом используйте /monitoring",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📊 Управление мониторингом", callback_data="manage_monitoring")
-            ]]),
-            parse_mode='Markdown'
-        )
-        
-        return ConversationHandler.END
-    
-    elif data == "confirm_no":
-        await query.edit_message_text(
-            "🔧 **Настройка мониторинга**\n\n"
-            "Выберите, что хотите изменить:",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📅 Дата", callback_data="change_date")],
-                [InlineKeyboardButton("🛣️ Направление", callback_data="change_direction")],
-                [InlineKeyboardButton("⏰ Время", callback_data="change_time")],
-                [InlineKeyboardButton("🚫 Отменить", callback_data="cancel_setup")]
-            ]),
-            parse_mode='Markdown'
-        )
-
-async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка текстового ввода"""
-    user_id = update.effective_user.id
-    text = update.message.text.strip()
-    
-    if user_id not in user_data_store:
-        # Обычный поиск рейсов
-        await handle_regular_search(update, context)
-        return
-    
-    # Проверяем, что пользователь вводит в процессе настройки
-    current_state = context.user_data.get('state')
-    
-    # Ввод даты
-    import re
-    if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
-        try:
-            datetime.strptime(text, '%Y-%m-%d')
-            user_data_store[user_id]['date'] = text
-            
-            await update.message.reply_text(
-                f"✅ **Выбрана дата:** {text}\n\n"
-                "🛣️ **Шаг 2:** Выберите направление:",
-                reply_markup=get_direction_keyboard(),
-                parse_mode='Markdown'
-            )
-            
-            return CHOOSE_DIRECTION
-        except ValueError:
-            await update.message.reply_text(
-                "❌ **Неверный формат даты**\n\n"
-                "Используйте формат YYYY-MM-DD, например: `2025-01-15`",
-                parse_mode='Markdown'
-            )
-            return CHOOSE_DATE
-    
-    # Ввод диапазона времени
-    elif re.match(r'^\d{2}:\d{2}-\d{2}:\d{2}$', text):
-        user_data_store[user_id]['time_range'] = text
-        
-        config_text = format_monitor_config(user_data_store[user_id])
-        
-        await update.message.reply_text(
-            f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
-            "❓ **Запустить мониторинг?**",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Да, запустить!", callback_data="confirm_yes")],
-                [InlineKeyboardButton("❌ Нет, изменить", callback_data="confirm_no")]
-            ]),
-            parse_mode='Markdown'
-        )
-        
-        return CONFIRM_MONITORING
-    
-    else:
-        await handle_regular_search(update, context)
-
-# ==================== MONITORING FUNCTIONS ====================
-
-async def check_routes_for_user(
-    user_id: int,
-    context: Optional[ContextTypes.DEFAULT_TYPE] = None,
-):
-    """Проверка рейсов для конкретного пользователя"""
-    if user_id not in active_monitors:
-        return
-    
-    config = active_monitors[user_id]
-    
-    try:
-        await init_parser()
-        
-        # Получаем все рейсы на дату
-        routes_data = await parser.get_all_routes(config['date'])
-        
-        if not routes_data.get('success', False):
-            return
-        
-        # Фильтруем рейсы по критериям
-        suitable_routes = filter_routes_by_criteria(routes_data, config)
-        
-        if suitable_routes:
-            await send_monitoring_notification(user_id, suitable_routes, config, context)
-    
-    except Exception as e:
-        logger.error(f"Ошибка при проверке рейсов для пользователя {user_id}: {e}")
-
-def filter_routes_by_criteria(routes_data, config):
-    """Фильтрация рейсов по критериям пользователя"""
-    suitable_routes = []
-    
-    # Определяем, какие маршруты проверять
-    routes_to_check = []
-    if config['direction'] in ['minsk_ostrovets', 'both']:
-        routes_to_check.extend(routes_data.get('minsk_to_ostrovets', []))
-    if config['direction'] in ['ostrovets_minsk', 'both']:
-        routes_to_check.extend(routes_data.get('ostrovets_to_minsk', []))
-    
-    for route in routes_to_check:
-        # Проверяем наличие мест
-        seats = route.get('available_seats', 0)
-        if not isinstance(seats, int) or seats <= 0:
-            continue
-        
-        # Проверяем время, если задан диапазон
-        if config['time_range'] != 'any' and config['time_range'] != 'любое время':
-            if not check_time_criteria(route, config):
-                continue
-        
-        suitable_routes.append(route)
-    
-    return suitable_routes
-
-def check_time_criteria(route, config):
-    """Проверка соответствия времени критериям"""
-    time_range = config['time_range']
-    time_type = config['time_type']
-    
-    # Получаем нужное время из рейса
-    if time_type == 'departure':
-        route_time = route.get('departure_time', '')
-    elif time_type == 'arrival':
-        route_time = route.get('arrival_time', '')
-    else:
-        return True  # Любое время
-    
-    if not route_time:
-        return False
-    
-    try:
-        # Парсим время рейса
-        route_hour, route_minute = map(int, route_time.split(':'))
-        route_minutes = route_hour * 60 + route_minute
-        
-        # Парсим диапазон
-        if '-' in time_range:
-            start_time, end_time = time_range.split('-')
-            start_hour, start_minute = map(int, start_time.split(':'))
-            end_hour, end_minute = map(int, end_time.split(':'))
-            
-            start_minutes = start_hour * 60 + start_minute
-            end_minutes = end_hour * 60 + end_minute
-            
-            # Проверяем попадание в диапазон
-            if start_minutes <= end_minutes:
-                return start_minutes <= route_minutes <= end_minutes
-            else:
-                # Диапазон через полночь
-                return route_minutes >= start_minutes or route_minutes <= end_minutes
-    
-    except ValueError:
-        return True
-    
-    return True
-
-async def send_monitoring_notification(
-    user_id: int,
-    routes: List,
-    config: Dict,
-    context: Optional[ContextTypes.DEFAULT_TYPE] = None,
-):
-    """Отправка уведомления о найденных рейсах"""
-    try:
-        bot = context.bot if context else application.bot
-        chat_id = config['chat_id']
-        
-        direction_text = {
-            "minsk_ostrovets": "Минск → Островец",
-            "ostrovets_minsk": "Островец → Минск",
-            "both": "в обоих направлениях"
-        }.get(config['direction'], config['direction'])
-        
-        message_parts = [
-            "🔔 **НАЙДЕНЫ ПОДХОДЯЩИЕ РЕЙСЫ!**",
-            "",
-            f"📅 **Дата:** {config['date']}",
-            f"🛣️ **Направление:** {direction_text}",
-            f"⏰ **Время:** {config['time_range']}",
-            ""
-        ]
-        
-        for i, route in enumerate(routes[:5], 1):  # Показываем до 5 рейсов
-            seats = route.get('available_seats', 0)
-            emoji = "🔥" if seats <= 3 else "✅"
-            direction = f"{route['from_city']} → {route['to_city']}"
-            
-            message_parts.append(f"**{i}. {direction}**")
-            message_parts.append(f"🚀 {route.get('departure_time')} → 🎯 {route.get('arrival_time')}")
-            message_parts.append(f"{emoji} **{seats} мест** | {route.get('carrier', 'н/д')}")
-            message_parts.append("")
-        
-        if len(routes) > 5:
-            message_parts.append(f"... и еще {len(routes) - 5} рейсов")
-        
-        message_parts.extend([
-            "",
-            "💡 Для бронирования перейдите на сайт билет.маршруточка.бел",
-            "",
-            "🔄 Мониторинг продолжается..."
-        ])
-        
-        message = "\n".join(message_parts)
-        
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛑 Остановить мониторинг", callback_data="stop_monitoring")],
-            [InlineKeyboardButton("📊 Управление", callback_data="manage_monitoring")]
-        ])
-        
-        await bot.send_message(
-            chat_id=chat_id,
-            text=message,
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        logger.error(f"Ошибка при отправке уведомления пользователю {user_id}: {e}")
-
-# ==================== REGULAR COMMANDS ====================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Команда /start"""
-    text = (
-        "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
-        "🛣️ **Направления:** Минск ⇄ Островец\n"
-        "🌐 **Источник:** билет.маршруточка.бел\n\n"
-        "💡 **Выберите действие:**"
-    )
-    
-    await update.message.reply_text(
-        text,
-        reply_markup=get_main_menu_keyboard(update.effective_user.id),
-        parse_mode='Markdown'
-    )
-
-async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик главного меню"""
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    text = (
-        "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
-        "🛣️ **Направления:** Минск ⇄ Островец\n"
-        "🌐 **Источник:** билет.маршруточка.бел\n\n"
-        "💡 **Выберите действие:**"
-    )
-
-    await query.edit_message_text(
-        text,
-        reply_markup=get_main_menu_keyboard(user_id),
-        parse_mode='Markdown'
-    )
-
-async def my_monitors(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать мои мониторинги"""
-    user_id = update.effective_user.id
-    
-    if user_id in active_monitors:
-        config = active_monitors[user_id]
-        config_text = format_monitor_config(config)
-        
-        keyboard = [
-            [InlineKeyboardButton("🛑 Остановить", callback_data="stop_monitoring")],
-            [InlineKeyboardButton("🔧 Изменить", callback_data="setup_monitoring")],
-            [InlineKeyboardButton("📱 Проверить сейчас", callback_data="check_now")]
-        ]
-        
-        # Проверяем, это callback query или обычное сообщение
-        message_text = (
-            f"📊 **Активный мониторинг:**\n\n{config_text}\n\n"
-            f"⏰ **Создан:** {config.get('created_at', 'н/д')[:19].replace('T', ' ')}\n\n"
-            "💡 **Действия:**"
-        )
-        
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-    else:
-        keyboard = [
-            [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
-            [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
-        ]
-        
-        message_text = (
-            "📊 **Мониторинг не активен**\n\n"
-            "💡 Хотите настроить автоматическую проверку рейсов?"
-        )
-        
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-
-async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Остановить мониторинг"""
-    user_id = update.effective_user.id
-    
-    if user_id in active_monitors:
-        del active_monitors[user_id]
-        save_active_monitors()
-        
-        # Удаляем задачу из планировщика
-        try:
-            scheduler.remove_job(f"monitor_{user_id}")
-        except:
-            pass
-        
-        message_text = (
-            "✅ **Мониторинг остановлен**\n\n"
-            "💡 Для настройки нового мониторинга используйте /start"
-        )
-        
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                message_text,
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                message_text,
-                parse_mode='Markdown'
-            )
     else:
         message_text = "ℹ️ **Мониторинг не был активен**"
         
@@ -2098,4 +1335,145 @@ async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TY
                 "❌ **Не удалось войти. Проверьте данные и попробуйте снова.**",
                 parse_mode='Markdown'
             )
-    except Exception as e
+    except Exception as e:
+        logger.error(f"Ошибка при авторизации: {e}")
+        await update.message.reply_text(
+            "❌ **Ошибка системы. Попробуйте позже.**",
+            parse_mode='Markdown'
+        )
+    
+    return ConversationHandler.END
+
+# ==================== MAIN APPLICATION ====================
+
+async def main():
+    """Главная функция запуска бота"""
+    global application
+    
+    # Получаем токен из переменных окружения
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if not token:
+        logger.error("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения!")
+        return
+    
+    logger.info("🚀 Запуск бота MarhrutochkaTG...")
+    
+    try:
+        # Создаем приложение
+        application = Application.builder().token(token).build()
+        
+        # Настройка ConversationHandler для мониторинга
+        monitoring_conv_handler = ConversationHandler(
+            entry_points=[
+                CallbackQueryHandler(start_monitoring_conversation, pattern="^setup_monitoring$"),
+            ],
+            states={
+                CHOOSE_DATE: [
+                    CallbackQueryHandler(handle_date_choice),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
+                ],
+                CHOOSE_DIRECTION: [
+                    CallbackQueryHandler(handle_direction_choice),
+                ],
+                CHOOSE_TIME_TYPE: [
+                    CallbackQueryHandler(handle_time_type_choice),
+                ],
+                CHOOSE_TIME_RANGE: [
+                    CallbackQueryHandler(handle_time_range_choice),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
+                ],
+                CONFIRM_MONITORING: [
+                    CallbackQueryHandler(handle_monitoring_confirmation),
+                ],
+            },
+            fallbacks=[
+                CallbackQueryHandler(handle_main_menu, pattern="^back_to_main$"),
+                CommandHandler('start', start),
+            ],
+            per_message=False,
+        )
+
+        # Настройка ConversationHandler для входа через Requests
+        login_requests_conv_handler = ConversationHandler(
+            entry_points=[
+                CallbackQueryHandler(start_login_requests, pattern="^login_requests$"),
+            ],
+            states={
+                LOGIN_REQUESTS_PHONE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_requests)
+                ],
+                LOGIN_REQUESTS_PASSWORD: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_password_requests)
+                ],
+            },
+            fallbacks=[
+                CommandHandler('start', start),
+            ],
+            per_message=False,
+        )
+
+        # Добавляем обработчики
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("monitoring", monitoring_command))
+        
+        # Добавляем ConversationHandlers
+        application.add_handler(monitoring_conv_handler)
+        application.add_handler(login_requests_conv_handler)
+        
+        # Добавляем обработчики кнопок
+        application.add_handler(CallbackQueryHandler(get_profile_requests, pattern="^profile_requests$"))
+        application.add_handler(CallbackQueryHandler(get_tickets_requests, pattern="^tickets_requests$"))
+        application.add_handler(CallbackQueryHandler(button_callback))
+        
+        # Обработчик текстовых сообщений
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
+        
+        # Обработчик ошибок
+        application.add_error_handler(error_handler)
+        
+        # Загружаем существующие мониторинги
+        load_active_monitors()
+        logger.info(f"📊 Загружены мониторинги для {len(active_monitors)} пользователей")
+        
+        # Запускаем планировщик
+        scheduler.start()
+        logger.info("⏰ Планировщик запущен")
+        
+        # Восстанавливаем активные мониторинги
+        for user_id, config in active_monitors.items():
+            try:
+                scheduler.add_job(
+                    check_routes_for_user,
+                    'interval',
+                    minutes=5,
+                    id=f"monitor_{user_id}",
+                    args=[user_id],
+                    replace_existing=True
+                )
+                logger.info(f"🔄 Восстановлен мониторинг для пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка восстановления мониторинга для {user_id}: {e}")
+        
+        # Запускаем бота
+        logger.info("🤖 Бот запущен успешно!")
+        await application.run_polling(drop_pending_updates=True)
+        
+    except Conflict:
+        logger.error("❌ Конфликт: бот уже запущен в другом месте!")
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка: {e}")
+        raise
+    finally:
+        if scheduler.running:
+            scheduler.shutdown()
+            logger.info("⏰ Планировщик остановлен")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 Бот остановлен пользователем")
+    except Exception as e:
+        logger.error(f"💥 Фатальная ошибка: {e}")
+        sys.exit(1)
