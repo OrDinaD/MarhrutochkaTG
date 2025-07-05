@@ -49,6 +49,16 @@ temp/
 *.swp
 *.swo
 
+# Documentation - ignore all MD files except README
+*.md
+!README.md
+
+# Data files
+*.json
+!package.json
+monitors.json
+user_sessions.json
+
 # macOS
 .DS_Store
 .AppleDouble

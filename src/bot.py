@@ -67,6 +67,7 @@ user_auth = {}  # user_id -> auth_status (для старого менеджер
 user_sessions = {} # user_id -> RequestsAuthManager instance
 application = None  # will hold the Application instance
 DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'monitors.json')
+SESSIONS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'user_sessions.json')
 
 def load_active_monitors():
     """Загрузка активных мониторингов из файла"""
@@ -87,8 +88,55 @@ def save_active_monitors():
     except Exception as e:
         logger.error(f"Не удалось сохранить мониторинги: {e}")
 
-# Загружаем существующие мониторинги при импорте модуля
+def load_user_sessions():
+    """Загрузка пользовательских сессий из файла"""
+    global user_sessions
+    if os.path.exists(SESSIONS_FILE):
+        try:
+            with open(SESSIONS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Восстанавливаем сессии RequestsAuthManager
+            for user_id_str, session_data in data.items():
+                user_id = int(user_id_str)
+                auth_manager = RequestsAuthManager()
+                
+                # Восстанавливаем cookies и состояние
+                if 'cookies' in session_data:
+                    auth_manager.session.cookies.update(session_data['cookies'])
+                if 'phone' in session_data:
+                    auth_manager.phone = session_data['phone']
+                if 'is_authenticated' in session_data and session_data['is_authenticated']:
+                    auth_manager.is_authenticated = True
+                    user_sessions[user_id] = auth_manager
+                    logger.info(f"🔓 Восстановлена сессия для пользователя {user_id}")
+        except Exception as e:
+            logger.error(f"Не удалось загрузить сессии: {e}")
+
+def save_user_sessions():
+    """Сохранение пользовательских сессий в файл"""
+    try:
+        data = {}
+        for user_id, auth_manager in user_sessions.items():
+            if hasattr(auth_manager, 'is_authenticated') and auth_manager.is_authenticated:
+                session_data = {
+                    'cookies': dict(auth_manager.session.cookies),
+                    'phone': getattr(auth_manager, 'phone', ''),
+                    'is_authenticated': True
+                }
+                data[str(user_id)] = session_data
+        
+        with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Не удалось сохранить сессии: {e}")
+
+# Загружаем существующие мониторинги и сессии при импорте модуля
 load_active_monitors()
+try:
+    load_user_sessions()
+except Exception as e:
+    logger.error(f"Ошибка при загрузке сессий: {e}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors from telegram.ext and log them."""
@@ -222,12 +270,13 @@ def get_main_menu_keyboard(user_id: int):
     if user_id in user_sessions:
         # Пользователь вошел через Requests
         keyboard.extend([
-            [InlineKeyboardButton("👤 Мой профиль (Requests)", callback_data="profile_requests")],
-            [InlineKeyboardButton("🎫 Мои билеты (Requests)", callback_data="tickets_requests")]
+            [InlineKeyboardButton("👤 Мой профиль", callback_data="profile_requests")],
+            [InlineKeyboardButton("🎫 Мои билеты", callback_data="tickets_requests")],
+            [InlineKeyboardButton("🚪 Выйти из аккаунта", callback_data="logout_requests")]
         ])
     else:
         # Пользователь не вошел
-        keyboard.append([InlineKeyboardButton("🔒 Войти (Requests API)", callback_data="login_requests")])
+        keyboard.append([InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests")])
 
     keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help")])
     return InlineKeyboardMarkup(keyboard)
@@ -487,7 +536,7 @@ async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте снова, нажав /start.")
         return ConversationHandler.END
 
-    await update.message.reply_text("Выполняю вход... Это может занять несколько секунд.")
+    await update.message.reply_text("⏳ Выполняю вход... Это может занять несколько секунд.")
 
     # Создаем новый экземпляр менеджера для этого пользователя
     auth_manager = RequestsAuthManager()
@@ -496,9 +545,20 @@ async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT
     success = auth_manager.login(phone, password)
 
     if success:
+        # Сохраняем номер телефона для восстановления сессии
+        auth_manager.phone = phone
         user_sessions[user_id] = auth_manager
+        
+        # Сохраняем сессии в файл
+        save_user_sessions()
+        
         await update.message.reply_text(
-            "🎉 **Вход выполнен успешно!**\n\nТеперь вы можете просматривать свой профиль и билеты.",
+            "🎉 **Вход выполнен успешно!**\n\n"
+            "Теперь вы можете:\n"
+            "• 👤 Просматривать свой профиль\n"
+            "• 🎫 Смотреть свои билеты\n"
+            "• 🚪 Выйти из аккаунта\n\n"
+            "💡 Ваша сессия сохранена и восстановится при перезапуске бота.",
             reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
@@ -553,19 +613,40 @@ async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if tickets:
         message_text = "**🎫 Ваши активные билеты:**\n\n"
-        for ticket in tickets:
-            message_text += "---\n"
+        for i, ticket in enumerate(tickets, 1):
+            message_text += f"**Билет #{i}:**\n"
             for key, value in ticket.items():
-                message_text += f"**{key.replace('_', ' ').capitalize()}:** {value}\n"
+                message_text += f"• **{key.replace('_', ' ').capitalize()}:** {value}\n"
             message_text += "\n"
     else:
-        message_text = "У вас нет активных билетов."
+        message_text = "📭 **У вас нет активных билетов.**\n\n💡 Вы можете забронировать билеты на сайте билет.маршруточка.бел"
 
     await update.callback_query.edit_message_text(
         message_text,
         reply_markup=get_main_menu_keyboard(user_id),
         parse_mode='Markdown'
     )
+
+async def logout_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Выход из аккаунта"""
+    user_id = update.effective_user.id
+    
+    if user_id in user_sessions:
+        # Удаляем сессию пользователя
+        del user_sessions[user_id]
+        
+        # Сохраняем изменения в файл
+        save_user_sessions()
+        
+        await update.callback_query.answer("Выход выполнен")
+        await update.callback_query.edit_message_text(
+            "🚪 **Выход выполнен успешно!**\n\n"
+            "💡 Чтобы снова войти в аккаунт, используйте кнопку \"🔒 Войти в аккаунт\"",
+            reply_markup=get_main_menu_keyboard(user_id),
+            parse_mode='Markdown'
+        )
+    else:
+        await update.callback_query.answer("Вы не были авторизованы", show_alert=True)
 
 
 async def handle_direction_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1176,24 +1257,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ **Ошибка при поиске рейсов**", parse_mode='Markdown')
     
     elif data == "back_to_main":
-        keyboard = [
-            [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
-            [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
-            [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")]
-        ]
-
-        if user_id in user_sessions:
-            # Пользователь вошел через Requests
-            keyboard.extend([
-                [InlineKeyboardButton("👤 Мой профиль (Requests)", callback_data="profile_requests")],
-                [InlineKeyboardButton("🎫 Мои билеты (Requests)", callback_data="tickets_requests")]
-            ])
-        else:
-            # Пользователь не вошел
-            keyboard.append([InlineKeyboardButton("🔒 Войти (Requests API)", callback_data="login_requests")])
-
-        keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help")])
-
         text = (
             "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
             "🛣️ **Направления:** Минск ⇄ Островец\n"
@@ -1264,7 +1327,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "check_now":
         if user_id in active_monitors:
             await query.answer("🔍 Проверяю рейсы...")
-            await check_routes_for_user(user_id, context)
+            
+            # Создаем фейковый job объект для check_routes_for_user
+            class FakeJob:
+                def __init__(self, data):
+                    self.data = data
+            
+            class FakeContext:
+                def __init__(self, bot):
+                    self.bot = bot
+                    self.job = FakeJob(user_id)
+            
+            fake_context = FakeContext(query.bot)
+            await check_routes_for_user(fake_context)
+            
             await query.edit_message_text(
                 "✅ **Проверка завершена**\n\n"
                 "Если найдены подходящие рейсы, вы получите уведомление.",
@@ -1415,6 +1491,7 @@ def register_handlers(application):
     # Добавляем обработчики кнопок
     application.add_handler(CallbackQueryHandler(get_profile_requests, pattern="^profile_requests$"))
     application.add_handler(CallbackQueryHandler(get_tickets_requests, pattern="^tickets_requests$"))
+    application.add_handler(CallbackQueryHandler(logout_requests, pattern="^logout_requests$"))
     application.add_handler(CallbackQueryHandler(button_callback))
     
     # Обработчик текстовых сообщений
@@ -1446,9 +1523,11 @@ def main():
         global job_queue
         job_queue = application.job_queue
         
-        # Загружаем существующие мониторинги
+        # Загружаем существующие мониторинги и сессии
         load_active_monitors()
+        load_user_sessions()
         logger.info(f"📊 Загружены мониторинги для {len(active_monitors)} пользователей")
+        logger.info(f"🔓 Загружены сессии для {len(user_sessions)} пользователей")
         
         # Восстанавливаем активные мониторинги
         for user_id, config in active_monitors.items():
