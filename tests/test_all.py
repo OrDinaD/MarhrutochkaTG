@@ -8,6 +8,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import pytest
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -16,6 +17,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
+@pytest.mark.asyncio
 async def test_parser():
     """Тестирование парсера"""
     print("🔍 Тестирование парсера...")
@@ -54,6 +56,7 @@ async def test_parser():
         print(f"❌ Ошибка парсера: {e}")
         return False
 
+@pytest.mark.asyncio
 async def test_filter_logic():
     """Тестирование логики фильтрации"""
     print("\n🔧 Тестирование логики фильтрации...")
@@ -139,7 +142,7 @@ def test_bot_config():
             return False
     
     print("✅ Конфигурация корректна!")
-    return True
+    assert True  # Изменяем return на assert
 
 async def main():
     """Главная функция тестирования"""
