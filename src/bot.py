@@ -110,8 +110,8 @@ def load_user_sessions():
                     auth_manager.session.cookies.update(session_data['cookies'])
                 if 'phone' in session_data:
                     auth_manager.phone = session_data['phone']
-                if 'is_authenticated' in session_data and session_data['is_authenticated']:
-                    auth_manager.is_authenticated = True
+                if 'authenticated' in session_data and session_data['authenticated']:
+                    auth_manager.authenticated = True
                     user_sessions[user_id] = auth_manager
                     logger.info(f"🔓 Восстановлена сессия для пользователя {user_id}")
         except Exception as e:
@@ -122,11 +122,11 @@ def save_user_sessions():
     try:
         data = {}
         for user_id, auth_manager in user_sessions.items():
-            if hasattr(auth_manager, 'is_authenticated') and auth_manager.is_authenticated:
+            if hasattr(auth_manager, 'authenticated') and auth_manager.authenticated:
                 session_data = {
                     'cookies': dict(auth_manager.session.cookies),
                     'phone': getattr(auth_manager, 'phone', ''),
-                    'is_authenticated': True
+                    'authenticated': True
                 }
                 data[str(user_id)] = session_data
         
@@ -545,8 +545,9 @@ async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT
     # Создаем новый экземпляр менеджера для этого пользователя
     auth_manager = RequestsAuthManager()
     
-    # Выполняем вход
-    success = auth_manager.login(phone, password)
+    # Выполняем вход асинхронно, чтобы не блокировать основной поток
+    loop = asyncio.get_event_loop()
+    success = await loop.run_in_executor(None, lambda: auth_manager.login(phone, password))
 
     if success:
         # Сохраняем номер телефона для восстановления сессии
@@ -591,7 +592,9 @@ async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYP
     auth_manager = user_sessions[user_id]
     
     try:
-        profile_data = auth_manager.get_profile()
+        # Получаем данные профиля асинхронно
+        loop = asyncio.get_event_loop()
+        profile_data = await loop.run_in_executor(None, auth_manager.get_profile)
         
         if profile_data:
             profile_text = "**👤 Ваш профиль:**\n\n"
@@ -655,7 +658,9 @@ async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYP
     auth_manager = user_sessions[user_id]
     
     try:
-        tickets = auth_manager.get_tickets()
+        # Получаем билеты асинхронно
+        loop = asyncio.get_event_loop()
+        tickets = await loop.run_in_executor(None, auth_manager.get_tickets)
         
         if tickets:
             message_text = "**🎫 Ваши активные билеты:**\n\n"
@@ -1655,13 +1660,6 @@ def main():
 
 if __name__ == "__main__":
     try:
-        logger.info("🚀 Старт главной функции main()")
-        main()
-    except KeyboardInterrupt:
-        logger.info("🛑 Бот остановлен пользователем")
-    except Exception as e:
-        logger.error(f"💥 Фатальная ошибка: {e}", exc_info=True)
-        sys.exit(1)
         logger.info("🚀 Старт главной функции main()")
         main()
     except KeyboardInterrupt:
