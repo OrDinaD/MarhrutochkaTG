@@ -37,6 +37,11 @@ try:
 except ImportError:
     from requests_auth import RequestsAuthManager
 
+# Импортируем парсер
+try:
+    from .parser import FinalMarshrutochkaParser
+except ImportError:
+    from parser import FinalMarshrutochkaParser
 
 # Импортируем наш менеджер логирования
 try:
@@ -62,12 +67,10 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Глобальные переменные
 parser = None
-auth_manager = None
 requests_auth_manager = None # Для нового менеджера
 job_queue = None  # Встроенная очередь заданий PTB
 active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
-user_auth = {}  # user_id -> auth_status (для старого менеджера)
 user_sessions = {} # user_id -> RequestsAuthManager instance
 application = None  # will hold the Application instance
 DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'monitors.json')
@@ -150,23 +153,8 @@ async def init_parser():
     """Инициализация парсера"""
     global parser
     if parser is None:
-        try:
-            from .parser import FinalMarshrutochkaParser
-        except ImportError:
-            from parser import FinalMarshrutochkaParser
         parser = FinalMarshrutochkaParser()
         await parser.__aenter__()
-
-async def init_auth_manager():
-    """Инициализация менеджера авторизации"""
-    global auth_manager
-    if auth_manager is None:
-        try:
-            from .auth_manager import AuthManager
-        except ImportError:
-            from auth_manager import AuthManager
-        auth_manager = AuthManager()
-        await auth_manager.__aenter__()
 
 async def init_requests_auth_manager():
     """Инициализация менеджера аутентификации через Requests"""
