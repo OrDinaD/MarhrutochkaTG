@@ -47,7 +47,16 @@ except ImportError:
 try:
     from .log_manager import setup_logging
 except ImportError:
-    from log_manager import setup_logging
+    try:
+        from log_manager import setup_logging
+    except ImportError:
+        # Fallback для продакшена
+        def setup_logging(level):
+            logging.basicConfig(
+                level=level,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            return logging.getLogger(__name__)
 
 # Настройка логирования
 logger = setup_logging(logging.INFO)
@@ -1444,11 +1453,11 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда для входа в аккаунт"""
     user_id = update.effective_user.id
     
-    if user_id in user_auth and user_auth[user_id].get('authenticated'):
+    if user_id in user_sessions:
         await update.message.reply_text(
             "✅ **Вы уже авторизованы в системе!**\n\n"
-            "🔍 Используйте /profile для просмотра профиля\n"
-            "🎫 Используйте /bookings для просмотра броней",
+            "� Используйте кнопку \"Мой профиль\" для просмотра данных\n"
+            "🎫 Используйте кнопку \"Мои билеты\" для просмотра броней",
             parse_mode='Markdown'
         )
         return ConversationHandler.END
@@ -1479,31 +1488,57 @@ async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TY
     password = update.message.text.strip()
     phone = context.user_data.get('login_phone', '')
 
+    if not phone:
+        await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте снова, нажав /start.")
+        return ConversationHandler.END
+
     await update.message.reply_text(
         "⏳ **Проверяю данные...**",
         parse_mode='Markdown'
     )
 
     try:
-        await init_auth_manager()
-        success = await auth_manager.login(phone, password)
+        # Создаем новый экземпляр менеджера для этого пользователя
+        auth_manager = RequestsAuthManager()
+        
+        # Выполняем вход
+        success = auth_manager.login(phone, password)
+        
         if success:
-            user_auth[user_id] = {'authenticated': True}
+            # Сохраняем номер телефона для восстановления сессии
+            auth_manager.phone = phone
+            user_sessions[user_id] = auth_manager
+            
+            # Сохраняем сессии в файл
+            save_user_sessions()
+            
             await update.message.reply_text(
-                "✅ **Успешный вход!**",
+                "🎉 **Вход выполнен успешно!**\n\n"
+                "Теперь вы можете:\n"
+                "• 👤 Просматривать свой профиль\n"
+                "• 🎫 Смотреть свои билеты\n"
+                "• 🚪 Выйти из аккаунта\n\n"
+                "💡 Ваша сессия сохранена и восстановится при перезапуске бота.",
+                reply_markup=get_main_menu_keyboard(user_id),
                 parse_mode='Markdown'
             )
         else:
             await update.message.reply_text(
-                "❌ **Не удалось войти. Проверьте данные и попробуйте снова.**",
+                "❌ **Ошибка входа.**\n\nПожалуйста, проверьте ваш телефон и пароль и попробуйте снова.",
+                reply_markup=get_main_menu_keyboard(user_id),
                 parse_mode='Markdown'
             )
     except Exception as e:
         logger.error(f"Ошибка при авторизации: {e}")
         await update.message.reply_text(
             "❌ **Ошибка системы. Попробуйте позже.**",
+            reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
+    
+    # Очищаем временные данные
+    if 'login_phone' in context.user_data:
+        del context.user_data['login_phone']
     
     return ConversationHandler.END
 
@@ -1645,6 +1680,15 @@ def main():
                 logger.info("⏰ JobQueue остановлен")
         except Exception as e:
             logger.error(f"Ошибка при завершении JobQueue: {e}", exc_info=True)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("👋 Бот остановлен пользователем")
+    except Exception as e:
+        logger.error(f"💥 Фатальная ошибка: {e}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     try:
