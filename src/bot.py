@@ -58,6 +58,14 @@ except ImportError:
             )
             return logging.getLogger(__name__)
 
+# Импортируем новые модули автобронирования и админ-панели
+try:
+    from .auto_booking import AutoBookingManager
+    from .admin_panel import AdminPanel
+except ImportError:
+    from auto_booking import AutoBookingManager
+    from admin_panel import AdminPanel
+
 # Настройка логирования
 logger = setup_logging(logging.INFO)
 
@@ -72,7 +80,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 (CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE, CHOOSE_TIME_RANGE, 
  CONFIRM_MONITORING, MONITORING_ACTIVE, LOGIN_PHONE, LOGIN_PASSWORD,
  SEARCH_FROM, SEARCH_TO, SEARCH_DATE, BOOKING_NUMBER, PHONE_DIGITS,
- LOGIN_REQUESTS_PHONE, LOGIN_REQUESTS_PASSWORD) = range(15)
+ LOGIN_REQUESTS_PHONE, LOGIN_REQUESTS_PASSWORD, CHOOSE_PASSENGER_COUNT,
+ CONFIRM_BOOKING, ADMIN_SEARCH_USER) = range(18)
 
 # Глобальные переменные
 parser = None
@@ -80,6 +89,9 @@ requests_auth_manager = None # Для нового менеджера
 job_queue = None  # Встроенная очередь заданий PTB
 active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
+user_sessions = {} # user_id -> RequestsAuthManager instance
+application = None  # will hold the Application instance
+admin_panel = None  # Административная панель
 user_sessions = {} # user_id -> RequestsAuthManager instance
 application = None  # will hold the Application instance
 DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'monitors.json')
@@ -273,11 +285,16 @@ def get_main_menu_keyboard(user_id: int):
         keyboard.extend([
             [InlineKeyboardButton("👤 Мой профиль", callback_data="profile_requests")],
             [InlineKeyboardButton("🎫 Мои билеты", callback_data="tickets_requests")],
+            [InlineKeyboardButton("🤖 Автобронирование", callback_data="auto_booking")],
             [InlineKeyboardButton("🚪 Выйти из аккаунта", callback_data="logout_requests")]
         ])
     else:
         # Пользователь не вошел
         keyboard.append([InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests")])
+
+    # Добавляем админ-панель для администратора
+    if admin_panel and admin_panel.is_admin(user_id):
+        keyboard.append([InlineKeyboardButton("⚙️ Функции администратора", callback_data="admin_panel")])
 
     keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help")])
     return InlineKeyboardMarkup(keyboard)
@@ -1444,8 +1461,312 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.answer("❌ Мониторинг не активен")
     
+    elif data == "auto_booking":
+        # Переход к автобронированию
+        await handle_auto_booking_menu(update, context)
+    
+    elif data == "admin_panel":
+        # Админ-панель
+        await handle_admin_panel(update, context)
+    
+    # Обработчики админ-панели
+    elif data.startswith("admin_"):
+        await handle_admin_functions(update, context, data)
+    
+    # Обработчики автобронирования
+    elif data == "my_bookings":
+        await handle_my_bookings(update, context)
+    
+    elif data == "auto_book_monitoring":
+        await query.edit_message_text(
+            "🔔 **АВТОБРОНИРОВАНИЕ ПРИ МОНИТОРИНГЕ**\n\n"
+            "🚧 Функция в разработке\n\n"
+            "Эта функция позволит автоматически бронировать рейсы, "
+            "когда они появляются в процессе мониторинга.\n\n"
+            "💡 Скоро будет доступна!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🤖 Автобронирование", callback_data="auto_booking")],
+                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+            ]),
+            parse_mode='Markdown'
+        )
+    
     else:
         await query.answer("❓ Неизвестная команда")
+
+# ==================== AUTO BOOKING FUNCTIONS ====================
+
+async def handle_auto_booking_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик меню автобронирования"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if user_id not in user_sessions:
+        await query.edit_message_text(
+            "🔒 **Автобронирование недоступно**\n\n"
+            "Для использования автобронирования необходимо войти в аккаунт.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests"),
+                InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+            ]]),
+            parse_mode='Markdown'
+        )
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📅 Забронировать рейс", callback_data="book_route")],
+        [InlineKeyboardButton("🎫 Мои бронирования", callback_data="my_bookings")],
+        [InlineKeyboardButton("🔔 Автобронирование при мониторинге", callback_data="auto_book_monitoring")],
+        [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+    ]
+    
+    await query.edit_message_text(
+        "🤖 **АВТОБРОНИРОВАНИЕ РЕЙСОВ**\n\n"
+        "🎯 Доступные функции:\n"
+        "• Ручное бронирование конкретного рейса\n"
+        "• Просмотр существующих бронирований\n"
+        "• Автоматическое бронирование при мониторинге\n\n"
+        "💡 Выберите действие:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def handle_my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать существующие бронирования пользователя"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if user_id not in user_sessions:
+        await query.answer("❌ Необходима авторизация")
+        return
+    
+    await query.answer("📋 Загружаю ваши бронирования...")
+    
+    try:
+        auth_manager = user_sessions[user_id]
+        booking_manager = AutoBookingManager(auth_manager)
+        
+        # Получаем список бронирований асинхронно
+        loop = asyncio.get_event_loop()
+        bookings = await loop.run_in_executor(None, booking_manager.get_user_bookings)
+        
+        if bookings:
+            message_parts = [
+                "🎫 **ВАШИ БРОНИРОВАНИЯ**",
+                ""
+            ]
+            
+            for i, booking in enumerate(bookings[:10], 1):  # Показываем первые 10
+                booking_id = booking.get('booking_id', 'н/д')
+                route = booking.get('route', 'неизвестно')
+                date = booking.get('date', 'н/д')
+                status = booking.get('status', 'unknown')
+                
+                status_emoji = {
+                    'confirmed': '✅',
+                    'active': '🟢', 
+                    'cancelled': '❌',
+                    'expired': '⏰',
+                    'paid': '💰'
+                }.get(status, '❓')
+                
+                message_parts.append(
+                    f"**{i}. Бронирование #{booking_id}**\n"
+                    f"   🛣️ {route}\n"
+                    f"   📅 {date}\n"
+                    f"   {status_emoji} {status}\n"
+                )
+            
+            if len(bookings) > 10:
+                message_parts.append(f"... и еще {len(bookings) - 10} бронирований")
+            
+            message_text = "\n".join(message_parts)
+        else:
+            message_text = "🎫 **ВАШИ БРОНИРОВАНИЯ**\n\n❌ У вас нет активных бронирований"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Обновить", callback_data="my_bookings")],
+            [InlineKeyboardButton("🤖 Автобронирование", callback_data="auto_booking")],
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+        ]
+        
+        await query.edit_message_text(
+            message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения бронирований: {e}")
+        await query.edit_message_text(
+            "❌ **Ошибка получения бронирований**\n\n"
+            "Попробуйте позже или обратитесь к администратору.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+            ]]),
+            parse_mode='Markdown'
+        )
+
+# ==================== ADMIN PANEL FUNCTIONS ====================
+
+async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик главной админ-панели"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if not admin_panel or not admin_panel.is_admin(user_id):
+        await query.answer("❌ У вас нет прав администратора")
+        return
+    
+    await query.edit_message_text(
+        "⚙️ **АДМИНИСТРАТИВНАЯ ПАНЕЛЬ**\n\n"
+        "🔧 Добро пожаловать в админ-панель!\n"
+        "Здесь вы можете управлять ботом и мониторить его работу.\n\n"
+        "💡 Выберите действие:",
+        reply_markup=admin_panel.get_admin_menu_keyboard(),
+        parse_mode='Markdown'
+    )
+
+async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Обработчик функций админ-панели"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if not admin_panel or not admin_panel.is_admin(user_id):
+        await query.answer("❌ У вас нет прав администратора")
+        return
+    
+    if action == "admin_monitoring_stats":
+        # Статистика мониторингов
+        stats_text = admin_panel.get_monitoring_statistics(active_monitors, user_sessions)
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Обновить", callback_data="admin_monitoring_stats")],
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        await query.edit_message_text(
+            stats_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_active_users":
+        # Активные пользователи
+        users_text = admin_panel.get_active_users_info(active_monitors, user_sessions, user_data_store)
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Обновить", callback_data="admin_active_users")],
+            [InlineKeyboardButton("🔍 Поиск пользователя", callback_data="admin_search_user")],
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        await query.edit_message_text(
+            users_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_system_logs":
+        # Системные логи
+        logs_text = admin_panel.get_system_logs()
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Обновить", callback_data="admin_system_logs")],
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        await query.edit_message_text(
+            logs_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_bot_settings":
+        # Настройки бота
+        settings_text = admin_panel.get_bot_settings()
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Обновить", callback_data="admin_bot_settings")],
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        await query.edit_message_text(
+            settings_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_emergency":
+        # Экстренные функции
+        await query.edit_message_text(
+            "🚨 **ЭКСТРЕННЫЕ ФУНКЦИИ**\n\n"
+            "⚠️ **ВНИМАНИЕ!** Эти функции могут повлиять на работу бота.\n"
+            "Используйте их только при необходимости.\n\n"
+            "💡 Выберите действие:",
+            reply_markup=admin_panel.get_emergency_functions_keyboard(),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_stop_all_monitoring":
+        # Остановка всех мониторингов
+        result = admin_panel.stop_all_monitoring(active_monitors, job_queue)
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Экстренные функции", callback_data="admin_emergency")],
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        await query.edit_message_text(
+            result,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_clear_user_cache":
+        # Очистка кэша
+        result = admin_panel.clear_user_cache(user_data_store, user_sessions)
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Экстренные функции", callback_data="admin_emergency")],
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        await query.edit_message_text(
+            result,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_export_data":
+        # Экспорт данных
+        await query.answer("📤 Экспортирую данные...")
+        
+        export_result = admin_panel.export_data(active_monitors, user_sessions)
+        
+        if export_result['success']:
+            message_text = (
+                f"📤 **ЭКСПОРТ ДАННЫХ ЗАВЕРШЕН**\n\n"
+                f"✅ Данные сохранены в файл:\n"
+                f"`{export_result['filename']}`\n\n"
+                f"📊 **Статистика:**\n"
+                f"• Мониторингов: {len(active_monitors)}\n"
+                f"• Пользователей: {export_result['data']['total_users']}\n"
+                f"• Дата экспорта: {export_result['data']['timestamp'][:19].replace('T', ' ')}"
+            )
+        else:
+            message_text = f"📤 **ОШИБКА ЭКСПОРТА**\n\n❌ {export_result['error']}"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Экстренные функции", callback_data="admin_emergency")],
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        await query.edit_message_text(
+            message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
 
 # ==================== PROFILE AND BOOKING COMMANDS ====================
 
@@ -1542,6 +1863,239 @@ async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TY
     
     return ConversationHandler.END
 
+# ==================== BOOKING CONVERSATION FUNCTIONS ====================
+
+async def start_booking_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начало процесса бронирования рейса"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if user_id not in user_sessions:
+        await query.edit_message_text(
+            "🔒 **Бронирование недоступно**\n\n"
+            "Для бронирования рейсов необходимо войти в аккаунт.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests"),
+                InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+            ]]),
+            parse_mode='Markdown'
+        )
+        return ConversationHandler.END
+    
+    # Очищаем предыдущие данные бронирования
+    context.user_data.clear()
+    context.user_data['booking_stage'] = 'passenger_count'
+    
+    # Клавиатура для выбора количества пассажиров
+    keyboard = []
+    for count in range(1, 6):  # От 1 до 5 пассажиров
+        keyboard.append([InlineKeyboardButton(
+            f"{count} {'пассажир' if count == 1 else 'пассажира' if count < 5 else 'пассажиров'}",
+            callback_data=f"passengers_{count}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_booking")])
+    
+    await query.edit_message_text(
+        "🎫 **БРОНИРОВАНИЕ РЕЙСА**\n\n"
+        "👥 Выберите количество пассажиров:\n\n"
+        "💡 Максимальное количество пассажиров: 5",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+    
+    return CHOOSE_PASSENGER_COUNT
+
+async def handle_passenger_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка выбора количества пассажиров"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if query.data == "cancel_booking":
+        await query.edit_message_text(
+            "❌ Бронирование отменено",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+            ]])
+        )
+        return ConversationHandler.END
+    
+    if query.data.startswith("passengers_"):
+        passenger_count = int(query.data.split("_")[1])
+        context.user_data['passenger_count'] = passenger_count
+        
+        await query.answer(f"✅ Выбрано {passenger_count} пассажиров")
+        
+        try:
+            # Получаем доступные маршруты
+            auth_manager = user_sessions[user_id]
+            booking_manager = AutoBookingManager(auth_manager)
+            
+            await query.edit_message_text(
+                "🔄 Загружаю доступные маршруты...",
+                parse_mode='Markdown'
+            )
+            
+            # Получаем маршруты асинхронно
+            loop = asyncio.get_event_loop()
+            routes = await loop.run_in_executor(None, booking_manager.get_available_routes)
+            
+            if routes:
+                keyboard = []
+                for route in routes[:10]:  # Показываем первые 10 маршрутов
+                    route_id = route.get('route_id', '')
+                    route_name = route.get('name', 'Неизвестный маршрут')
+                    date = route.get('date', '')
+                    time = route.get('time', '')
+                    available = route.get('available_seats', 0)
+                    
+                    button_text = f"{route_name}"
+                    if date:
+                        button_text += f" ({date}"
+                    if time:
+                        button_text += f", {time}"
+                    if available > 0:
+                        button_text += f", свободно: {available}"
+                    if date:
+                        button_text += ")"
+                    
+                    keyboard.append([InlineKeyboardButton(
+                        button_text[:64],  # Ограничиваем длину
+                        callback_data=f"route_{route_id}"
+                    )])
+                
+                keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_booking")])
+                
+                await query.edit_message_text(
+                    f"🛣️ **ДОСТУПНЫЕ МАРШРУТЫ**\n\n"
+                    f"👥 Пассажиров: {passenger_count}\n"
+                    f"📋 Найдено маршрутов: {len(routes)}\n\n"
+                    f"💡 Выберите маршрут для бронирования:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode='Markdown'
+                )
+                
+                return CONFIRM_BOOKING
+            else:
+                await query.edit_message_text(
+                    "❌ **Нет доступных маршрутов**\n\n"
+                    "В данный момент нет доступных маршрутов для бронирования.\n"
+                    "Попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                    ]]),
+                    parse_mode='Markdown'
+                )
+                return ConversationHandler.END
+                
+        except Exception as e:
+            logger.error(f"Ошибка загрузки маршрутов: {e}")
+            await query.edit_message_text(
+                "❌ **Ошибка загрузки маршрутов**\n\n"
+                "Попробуйте позже или обратитесь к администратору.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                ]]),
+                parse_mode='Markdown'
+            )
+            return ConversationHandler.END
+    
+    return CHOOSE_PASSENGER_COUNT
+
+async def handle_route_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка подтверждения бронирования маршрута"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if query.data == "cancel_booking":
+        await query.edit_message_text(
+            "❌ Бронирование отменено",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+            ]])
+        )
+        return ConversationHandler.END
+    
+    if query.data.startswith("route_"):
+        route_id = query.data.replace("route_", "")
+        passenger_count = context.user_data.get('passenger_count', 1)
+        
+        await query.answer("🎫 Бронирую маршрут...")
+        
+        await query.edit_message_text(
+            "🔄 **ПРОЦЕСС БРОНИРОВАНИЯ**\n\n"
+            "Пожалуйста, подождите...\n"
+            "Выполняю бронирование маршрута.",
+            parse_mode='Markdown'
+        )
+        
+        try:
+            auth_manager = user_sessions[user_id]
+            booking_manager = AutoBookingManager(auth_manager)
+            
+            # Выполняем бронирование асинхронно
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, 
+                booking_manager.auto_book_route, 
+                route_id, 
+                passenger_count
+            )
+            
+            if result['success']:
+                message_text = (
+                    "✅ **БРОНИРОВАНИЕ УСПЕШНО!**\n\n"
+                    f"🎫 ID бронирования: `{result.get('booking_id', 'н/д')}`\n"
+                    f"🛣️ Маршрут: {result.get('route_name', 'н/д')}\n"
+                    f"📅 Дата: {result.get('date', 'н/д')}\n"
+                    f"⏰ Время: {result.get('time', 'н/д')}\n"
+                    f"👥 Пассажиров: {passenger_count}\n\n"
+                    f"💡 Детали бронирования сохранены в вашем аккаунте.\n"
+                    f"Проверить статус можно в разделе \"Мои бронирования\"."
+                )
+                
+                keyboard = [
+                    [InlineKeyboardButton("🎫 Мои бронирования", callback_data="my_bookings")],
+                    [InlineKeyboardButton("🤖 Автобронирование", callback_data="auto_booking")],
+                    [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+                ]
+                
+            else:
+                error_msg = result.get('error', 'Неизвестная ошибка')
+                message_text = (
+                    "❌ **ОШИБКА БРОНИРОВАНИЯ**\n\n"
+                    f"Не удалось забронировать маршрут.\n\n"
+                    f"**Причина:** {error_msg}\n\n"
+                    "💡 Попробуйте выбрать другой маршрут или повторите попытку позже."
+                )
+                
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Попробовать снова", callback_data="book_route")],
+                    [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+                ]
+            
+            await query.edit_message_text(
+                message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+            
+        except Exception as e:
+            logger.error(f"Критическая ошибка бронирования: {e}")
+            await query.edit_message_text(
+                "❌ **КРИТИЧЕСКАЯ ОШИБКА**\n\n"
+                "Произошла непредвиденная ошибка при бронировании.\n"
+                "Попробуйте позже или обратитесь к администратору.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                ]]),
+                parse_mode='Markdown'
+            )
+        
+        return ConversationHandler.END
+    
+    return CONFIRM_BOOKING
+
 # ==================== MAIN APPLICATION ====================
 
 def register_handlers(application):
@@ -1596,6 +2150,26 @@ def register_handlers(application):
         per_message=False,
     )
 
+    # Настройка ConversationHandler для бронирования
+    booking_conv_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(start_booking_conversation, pattern="^book_route$"),
+        ],
+        states={
+            CHOOSE_PASSENGER_COUNT: [
+                CallbackQueryHandler(handle_passenger_count)
+            ],
+            CONFIRM_BOOKING: [
+                CallbackQueryHandler(handle_route_booking)
+            ],
+        },
+        fallbacks=[
+            CommandHandler('start', start),
+            CallbackQueryHandler(lambda u, c: ConversationHandler.END, pattern="^cancel_booking$"),
+        ],
+        per_message=False,
+    )
+
     # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
@@ -1604,6 +2178,7 @@ def register_handlers(application):
     # Добавляем ConversationHandlers
     application.add_handler(monitoring_conv_handler)
     application.add_handler(login_requests_conv_handler)
+    application.add_handler(booking_conv_handler)
     
     # Добавляем обработчики кнопок (порядок важен!)
     application.add_handler(CallbackQueryHandler(button_callback))
