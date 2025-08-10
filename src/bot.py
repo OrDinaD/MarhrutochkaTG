@@ -71,6 +71,10 @@ except ImportError:
 # Настройка логирования
 logger = setup_logging(logging.INFO)
 
+# Определяем, используем ли мы Railway logger
+from .railway_logger import RailwayLogger
+is_railway_logger = isinstance(logger, RailwayLogger)
+
 # Игнорируем предупреждения от python-telegram-bot о per_message
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=PTBUserWarning)
@@ -145,7 +149,20 @@ load_active_monitors()
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors from telegram.ext and log them."""
-    logger.error("Exception while handling an update:", exc_info=context.error)
+    if is_railway_logger:
+        # Получаем дополнительную информацию об update
+        update_info = {}
+        if hasattr(update, 'effective_user') and update.effective_user:
+            update_info['user_id'] = update.effective_user.id
+        if hasattr(update, 'effective_chat') and update.effective_chat:
+            update_info['chat_id'] = update.effective_chat.id
+        if hasattr(update, 'effective_message') and update.effective_message:
+            update_info['message_id'] = update.effective_message.message_id
+            
+        logger.bot_action("Ошибка при обработке update", update_info, level="error")
+        logger.error("Exception details:", exc_info=context.error)
+    else:
+        logger.error("Exception while handling an update:", exc_info=context.error)
 
 async def init_parser():
     """Инициализация парсера"""
@@ -623,7 +640,14 @@ async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=get_main_menu_keyboard(user_id),
                 parse_mode='Markdown'
             )
-            logger.info(f"Пользователь {user_id} авторизован через новую систему")
+            if is_railway_logger:
+                logger.auth_action(f"Пользователь {user_id} успешно авторизован", {
+                    "user_id": user_id,
+                    "auth_method": "requests_auth",
+                    "status": "success"
+                })
+            else:
+                logger.info(f"Пользователь {user_id} авторизован через новую систему")
         else:
             await progress_message.edit_text(
                 "❌ **ОШИБКА ВХОДА**\n\n"
@@ -635,10 +659,26 @@ async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=get_main_menu_keyboard(user_id),
                 parse_mode='Markdown'
             )
-            logger.warning(f"Неуспешная авторизация пользователя {user_id}")
+            if is_railway_logger:
+                logger.auth_action(f"Неуспешная авторизация пользователя {user_id}", {
+                    "user_id": user_id,
+                    "auth_method": "requests_auth",
+                    "status": "failed",
+                    "reason": "invalid_credentials"
+                })
+            else:
+                logger.warning(f"Неуспешная авторизация пользователя {user_id}")
     
     except Exception as e:
-        logger.error(f"Ошибка авторизации пользователя {user_id}: {e}")
+        if is_railway_logger:
+            logger.auth_action(f"Ошибка авторизации пользователя {user_id}", {
+                "user_id": user_id,
+                "auth_method": "requests_auth",
+                "status": "error",
+                "error": str(e)
+            }, level="error")
+        else:
+            logger.error(f"Ошибка авторизации пользователя {user_id}: {e}")
         await progress_message.edit_text(
             "❌ **СИСТЕМНАЯ ОШИБКА**\n\n"
             "Произошла непредвиденная ошибка при входе.\n"
@@ -2497,7 +2537,10 @@ def main():
     # Получаем токен из переменных окружения
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
-        logger.error("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения!")
+        if is_railway_logger:
+            logger.bot_action("Токен бота не найден", {"error": "TELEGRAM_BOT_TOKEN missing"}, level="error")
+        else:
+            logger.error("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения!")
         return
     
     # Инициализируем админ-панель
@@ -2505,18 +2548,33 @@ def main():
     if admin_telegram_id:
         try:
             admin_panel = AdminPanel(int(admin_telegram_id))
-            logger.info(f"👤 Админ-панель активирована для пользователя {admin_telegram_id}")
+            if is_railway_logger:
+                logger.admin_action("Админ-панель активирована", {"admin_id": admin_telegram_id})
+            else:
+                logger.info(f"👤 Админ-панель активирована для пользователя {admin_telegram_id}")
         except ValueError:
-            logger.error("❌ ADMIN_TELEGRAM_ID должен быть числом!")
+            if is_railway_logger:
+                logger.admin_action("Неверный ADMIN_TELEGRAM_ID", {"error": "must_be_number"}, level="error")
+            else:
+                logger.error("❌ ADMIN_TELEGRAM_ID должен быть числом!")
     else:
-        logger.warning("⚠️ ADMIN_TELEGRAM_ID не установлен - админ-панель недоступна")
+        if is_railway_logger:
+            logger.admin_action("ADMIN_TELEGRAM_ID не установлен", {"warning": "admin_panel_disabled"}, level="warning")
+        else:
+            logger.warning("⚠️ ADMIN_TELEGRAM_ID не установлен - админ-панель недоступна")
     
-    logger.info("🚀 Запуск бота MarhrutochkaTG...")
-    
-    # Логируем информацию о версии и окружении
-    logger.info(f"Версия Python: {sys.version}")
-    logger.info(f"Рабочая директория: {os.getcwd()}")
-    logger.info(f"ID процесса: {os.getpid()}")
+    if is_railway_logger:
+        logger.bot_action("Запуск бота MarhrutochkaTG", {
+            "python_version": sys.version.split()[0],
+            "working_directory": os.getcwd(),
+            "process_id": os.getpid(),
+            "environment": "railway" if os.getenv('RAILWAY_SERVICE_NAME') else "local"
+        })
+    else:
+        logger.info("🚀 Запуск бота MarhrutochkaTG...")
+        logger.info(f"Версия Python: {sys.version}")
+        logger.info(f"Рабочая директория: {os.getcwd()}")
+        logger.info(f"ID процесса: {os.getpid()}")
     
     # Создаем приложение
     application = Application.builder().token(token).build()
@@ -2532,8 +2590,15 @@ def main():
         # Загружаем существующие мониторинги и сессии
         load_active_monitors()
         load_user_sessions()
-        logger.info(f"📊 Загружены мониторинги для {len(active_monitors)} пользователей")
-        logger.info(f"🔓 Загружены сессии для {len(user_sessions)} пользователей")
+        
+        if is_railway_logger:
+            logger.bot_action("Данные восстановлены", {
+                "monitors_count": len(active_monitors),
+                "sessions_count": len(user_sessions)
+            })
+        else:
+            logger.info(f"📊 Загружены мониторинги для {len(active_monitors)} пользователей")
+            logger.info(f"🔓 Загружены сессии для {len(user_sessions)} пользователей")
         
         # Восстанавливаем активные мониторинги
         for user_id, config in active_monitors.items():
@@ -2545,18 +2610,36 @@ def main():
                     name=f"monitor_{user_id}",
                     data=user_id
                 )
-                logger.info(f"🔄 Восстановлен мониторинг для пользователя {user_id}")
+                if is_railway_logger:
+                    logger.bot_action(f"Мониторинг восстановлен", {"user_id": user_id})
+                else:
+                    logger.info(f"🔄 Восстановлен мониторинг для пользователя {user_id}")
             except Exception as e:
-                logger.error(f"❌ Ошибка восстановления мониторинга для {user_id}: {e}")
+                if is_railway_logger:
+                    logger.bot_action(f"Ошибка восстановления мониторинга", {
+                        "user_id": user_id,
+                        "error": str(e)
+                    }, level="error")
+                else:
+                    logger.error(f"❌ Ошибка восстановления мониторинга для {user_id}: {e}")
         
         # Запускаем бота (планировщик запустится автоматически)
-        logger.info("🤖 Бот запущен успешно!")
+        if is_railway_logger:
+            logger.bot_action("Бот запущен успешно", {"status": "running"})
+        else:
+            logger.info("🤖 Бот запущен успешно!")
         application.run_polling(drop_pending_updates=True)
         
     except Conflict:
-        logger.error("❌ Конфликт: бот уже запущен в другом месте!")
+        if is_railway_logger:
+            logger.bot_action("Конфликт: бот уже запущен", {"error": "conflict"}, level="error")
+        else:
+            logger.error("❌ Конфликт: бот уже запущен в другом месте!")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}", exc_info=True)
+        if is_railway_logger:
+            logger.bot_action("Критическая ошибка", {"error": str(e)}, level="error")
+        else:
+            logger.error(f"❌ Критическая ошибка: {e}", exc_info=True)
         traceback.print_exc()
     finally:
         # Graceful shutdown

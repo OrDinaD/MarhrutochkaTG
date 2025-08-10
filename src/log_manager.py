@@ -5,6 +5,7 @@ import telegram
 import asyncio
 from datetime import datetime
 import traceback
+from .railway_logger import RailwayLogger
 
 class TelegramLogHandler(logging.Handler):
     def __init__(self, bot_token, chat_id):
@@ -71,8 +72,19 @@ class TelegramLogHandler(logging.Handler):
             print(f"Ошибка при отправке логов в Telegram: {e}")
 
 def setup_logging(log_level=logging.INFO):
-    """Настройка логирования с отправкой в Telegram"""
+    """Настройка логирования с отправкой в Telegram и Railway-оптимизацией"""
     
+    # Определяем, работаем ли мы в Railway
+    in_railway = os.getenv('RAILWAY_SERVICE_NAME') is not None
+    
+    if in_railway:
+        # Используем Railway logger для продакшена
+        logger = RailwayLogger("MarhrutochkaTG")
+        logger.info("🚂 Система логирования настроена для Railway", 
+                   extra={"component": "log_manager", "environment": "railway"})
+        return logger
+    
+    # Локальная разработка - стандартное логирование
     # Создаем папку для логов, если её нет
     os.makedirs('logs', exist_ok=True)
     
@@ -113,9 +125,19 @@ def setup_logging(log_level=logging.INFO):
 # Пример использования
 if __name__ == "__main__":
     logger = setup_logging()
-    logger.info("Тест логирования: INFO")
-    logger.warning("Тест логирования: WARNING")
-    try:
-        1/0
-    except Exception as e:
-        logger.error(f"Тест логирования: ERROR - {e}", exc_info=True)
+    
+    # Проверяем тип логгера
+    if isinstance(logger, RailwayLogger):
+        logger.bot_action("Тест Railway логирования", {"status": "test"})
+        logger.warning("Тест Railway предупреждения")
+        try:
+            1/0
+        except Exception as e:
+            logger.error(f"Тест Railway ошибки: {e}", exc_info=True)
+    else:
+        logger.info("Тест локального логирования: INFO")
+        logger.warning("Тест локального логирования: WARNING")
+        try:
+            1/0
+        except Exception as e:
+            logger.error(f"Тест локального логирования: ERROR - {e}", exc_info=True)
