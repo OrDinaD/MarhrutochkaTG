@@ -49,9 +49,14 @@ temp/
 *.swp
 *.swo
 
-# Documentation - ignore all MD files except README
+# Documentation - ignore all MD files except README and docs
 *.md
 !README.md
+!docs/RAILWAY_LOGGING.md
+!docs/RAILWAY_DEPLOY.md
+!docs/USER_GUIDE.md
+!docs/DEPLOYMENT.md
+!docs/TESTING_GUIDE.md
 
 # Data files
 *.json
