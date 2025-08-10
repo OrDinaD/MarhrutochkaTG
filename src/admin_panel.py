@@ -302,11 +302,8 @@ class AdminPanel:
             # Сохраняем изменения
             try:
                 # Импортируем функцию сохранения
-                import sys
-                import os
-                sys.path.append(os.path.join(os.path.dirname(__file__)))
-                from bot import save_active_monitors
-                save_active_monitors()
+                from .bot import save_active_monitors  # type: ignore
+                save_active_monitors()  # Может вызвать ImportError при циклическом импорте
             except:
                 pass
             

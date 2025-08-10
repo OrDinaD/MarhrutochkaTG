@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 # Загружаем переменные окружения
 load_dotenv()
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.error import Conflict
 from telegram.ext import (
     Application,
@@ -62,9 +62,11 @@ except ImportError:
 try:
     from .auto_booking import AutoBookingManager
     from .admin_panel import AdminPanel
+    from .bot_auth_manager import bot_auth_manager, format_profile_message, format_bookings_message
 except ImportError:
     from auto_booking import AutoBookingManager
     from admin_panel import AdminPanel
+    from bot_auth_manager import bot_auth_manager, format_profile_message, format_bookings_message
 
 # Настройка логирования
 logger = setup_logging(logging.INFO)
@@ -89,13 +91,35 @@ requests_auth_manager = None # Для нового менеджера
 job_queue = None  # Встроенная очередь заданий PTB
 active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
-user_sessions = {} # user_id -> RequestsAuthManager instance
 application = None  # will hold the Application instance
 admin_panel = None  # Административная панель
-user_sessions = {} # user_id -> RequestsAuthManager instance
-application = None  # will hold the Application instance
 DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'monitors.json')
-SESSIONS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'user_sessions.json')
+# Хранилище сессий (для legacy авторизации через RequestsAuthManager)
+user_sessions = {}
+USER_SESSIONS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'user_sessions.json')
+
+def load_user_sessions():
+    """Загрузка сессий пользователей из файла (legacy RequestsAuthManager)."""
+    global user_sessions
+    if os.path.exists(USER_SESSIONS_FILE):
+        try:
+            with open(USER_SESSIONS_FILE, 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+            # Нельзя напрямую восстановить requests.Session; сохраняем только метаданные.
+            # Поэтому при необходимости авторизации заново пользователь выполнит вход.
+            if isinstance(raw, dict):
+                user_sessions = raw
+            logger.info(f"🔓 Загружены legacy-сессии (метаданные) для {len(user_sessions)} пользователей")
+        except Exception as e:
+            logger.error(f"Не удалось загрузить user_sessions: {e}")
+
+def save_user_sessions():
+    """Сохранение метаданных сессий пользователей (legacy)."""
+    try:
+        with open(USER_SESSIONS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(user_sessions, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Не удалось сохранить user_sessions: {e}")
 
 def load_active_monitors():
     """Загрузка активных мониторингов из файла"""
@@ -116,55 +140,8 @@ def save_active_monitors():
     except Exception as e:
         logger.error(f"Не удалось сохранить мониторинги: {e}")
 
-def load_user_sessions():
-    """Загрузка пользовательских сессий из файла"""
-    global user_sessions
-    if os.path.exists(SESSIONS_FILE):
-        try:
-            with open(SESSIONS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # Восстанавливаем сессии RequestsAuthManager
-            for user_id_str, session_data in data.items():
-                user_id = int(user_id_str)
-                auth_manager = RequestsAuthManager()
-                
-                # Восстанавливаем cookies и состояние
-                if 'cookies' in session_data:
-                    auth_manager.session.cookies.update(session_data['cookies'])
-                if 'phone' in session_data:
-                    auth_manager.phone = session_data['phone']
-                if 'authenticated' in session_data and session_data['authenticated']:
-                    auth_manager.authenticated = True
-                    user_sessions[user_id] = auth_manager
-                    logger.info(f"🔓 Восстановлена сессия для пользователя {user_id}")
-        except Exception as e:
-            logger.error(f"Не удалось загрузить сессии: {e}")
-
-def save_user_sessions():
-    """Сохранение пользовательских сессий в файл"""
-    try:
-        data = {}
-        for user_id, auth_manager in user_sessions.items():
-            if hasattr(auth_manager, 'authenticated') and auth_manager.authenticated:
-                session_data = {
-                    'cookies': dict(auth_manager.session.cookies),
-                    'phone': getattr(auth_manager, 'phone', ''),
-                    'authenticated': True
-                }
-                data[str(user_id)] = session_data
-        
-        with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"Не удалось сохранить сессии: {e}")
-
-# Загружаем существующие мониторинги и сессии при импорте модуля
+# Загружаем существующие мониторинги при импорте модуля
 load_active_monitors()
-try:
-    load_user_sessions()
-except Exception as e:
-    logger.error(f"Ошибка при загрузке сессий: {e}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors from telegram.ext and log them."""
@@ -185,6 +162,57 @@ async def init_requests_auth_manager():
         # Здесь не нужен асинхронный вход, т.к. класс синхронный
 
 # ==================== UTILITY FUNCTIONS ====================
+
+def create_webapp_url(direction: str, date: str = None) -> str:
+    """Создает URL для веб-приложения маршруточки с предвыбранным направлением"""
+    # Используем главную страницу сайта вместо API endpoint
+    base_url = "https://билет.маршруточка.бел/"
+    
+    # Возвращаем просто главную страницу - пользователь сам выберет направление и дату
+    # Это проще и надежнее чем пытаться угадать API параметры
+    return base_url
+
+def create_webapp_keyboard(direction: str = None, date: str = None, additional_buttons: list = None) -> InlineKeyboardMarkup:
+    """Создает клавиатуру с кнопками веб-приложений"""
+    keyboard = []
+    
+    if direction:
+        # Создаем кнопку для конкретного направления
+        direction_names = {
+            "minsk_ostrovets": "🏙️ Минск → Островец",
+            "ostrovets_minsk": "🏘️ Островец → Минск",
+            "both": "🔄 Оба направления"
+        }
+        
+        if direction in ["minsk_ostrovets", "ostrovets_minsk"]:
+            webapp_url = create_webapp_url(direction, date)
+            web_app = WebAppInfo(url=webapp_url)
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"🌐 Открыть сайт бронирования", 
+                    web_app=web_app
+                )
+            ])
+        elif direction == "both":
+            # Добавляем кнопки для обоих направлений
+            webapp_url = create_webapp_url("both", date)
+            
+            keyboard.extend([
+                [InlineKeyboardButton("🚌 Открыть сайт маршруточки", web_app=WebAppInfo(url=webapp_url))]
+            ])
+    else:
+        # Создаем кнопку для общего доступа к сайту
+        webapp_url = create_webapp_url("general", date)
+        
+        keyboard.extend([
+            [InlineKeyboardButton("🚌 Открыть сайт маршруточки", web_app=WebAppInfo(url=webapp_url))]
+        ])
+    
+    # Добавляем дополнительные кнопки если есть
+    if additional_buttons:
+        keyboard.extend(additional_buttons)
+    
+    return InlineKeyboardMarkup(keyboard)
 
 def get_date_keyboard():
     """Клавиатура для выбора даты"""
@@ -280,11 +308,11 @@ def get_main_menu_keyboard(user_id: int):
         [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")]
     ]
 
-    if user_id in user_sessions:
-        # Пользователь вошел через Requests
+    if bot_auth_manager.is_authenticated(user_id):
+        # Пользователь вошел через улучшенную систему авторизации
         keyboard.extend([
             [InlineKeyboardButton("👤 Мой профиль", callback_data="profile_requests")],
-            [InlineKeyboardButton("🎫 Мои билеты", callback_data="tickets_requests")],
+            [InlineKeyboardButton("🎫 Мои бронирования", callback_data="tickets_requests")],
             [InlineKeyboardButton("🤖 Автобронирование", callback_data="auto_booking")],
             [InlineKeyboardButton("🚪 Выйти из аккаунта", callback_data="logout_requests")]
         ])
@@ -527,256 +555,398 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return CHOOSE_DATE
 
 async def start_login_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало процесса входа через Requests"""
+    """Начало процесса входа через улучшенную систему авторизации"""
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
-        text="Пожалуйста, введите ваш номер телефона (например, +375291234567):",
+        text="🔐 **ВХОД В АККАУНТ МАРШРУТОЧКИ**\n\n"
+        "📱 Введите ваш номер телефона в формате:\n"
+        "`+375XXXXXXXXX` или `375XXXXXXXXX`\n\n"
+        "💡 Пример: +375291234567",
         parse_mode='Markdown'
     )
     return LOGIN_REQUESTS_PHONE
 
 async def handle_phone_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка ввода телефона для входа через Requests"""
-    phone = update.message.text
+    """Обработка ввода телефона для входа"""
+    phone = update.message.text.strip()
     user_id = update.effective_user.id
+    
+    # Простая валидация номера
+    if not phone or len(phone) < 9:
+        await update.message.reply_text(
+            "❌ **Неверный формат номера**\n\n"
+            "Введите номер в формате: `+375XXXXXXXXX`",
+            parse_mode='Markdown'
+        )
+        return LOGIN_REQUESTS_PHONE
+    
     context.user_data['phone'] = phone
     
-    await update.message.reply_text("Теперь введите ваш пароль:")
+    await update.message.reply_text(
+        "🔑 **Введите пароль от аккаунта:**",
+        parse_mode='Markdown'
+    )
     return LOGIN_REQUESTS_PASSWORD
 
 async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка пароля и попытка входа через Requests"""
-    password = update.message.text
+    """Обработка пароля и выполнение авторизации"""
+    password = update.message.text.strip()
     user_id = update.effective_user.id
     phone = context.user_data.get('phone')
 
     if not phone:
-        await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте снова, нажав /start.")
+        await update.message.reply_text(
+            "❌ Произошла ошибка. Пожалуйста, попробуйте снова с /start."
+        )
         return ConversationHandler.END
 
-    await update.message.reply_text("⏳ Выполняю вход... Это может занять несколько секунд.")
+    # Показываем прогресс
+    progress_message = await update.message.reply_text(
+        "⏳ **Выполняю вход...**\n\n"
+        "🔄 Проверяю данные на сервере...",
+        parse_mode='Markdown'
+    )
 
-    # Создаем новый экземпляр менеджера для этого пользователя
-    auth_manager = RequestsAuthManager()
+    try:
+        # Выполняем авторизацию через новый менеджер
+        success = bot_auth_manager.login(user_id, phone, password)
+
+        if success:
+            await progress_message.edit_text(
+                "🎉 **ВХОД ВЫПОЛНЕН УСПЕШНО!**\n\n"
+                "✅ Теперь вы можете:\n"
+                "• 👤 Просматривать свой профиль\n"
+                "• 🎫 Управлять бронированиями\n"
+                "• 🤖 Использовать автобронирование\n"
+                "• 🚪 Выйти из аккаунта\n\n"
+                "💡 Ваша сессия сохранена и автоматически восстановится при перезапуске бота.",
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
+            logger.info(f"Пользователь {user_id} авторизован через новую систему")
+        else:
+            await progress_message.edit_text(
+                "❌ **ОШИБКА ВХОДА**\n\n"
+                "Возможные причины:\n"
+                "• Неверный номер телефона или пароль\n"
+                "• Проблемы с подключением к серверу\n"
+                "• Аккаунт заблокирован\n\n"
+                "💡 Проверьте данные и попробуйте снова.",
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
+            logger.warning(f"Неуспешная авторизация пользователя {user_id}")
     
-    # Выполняем вход асинхронно, чтобы не блокировать основной поток
-    loop = asyncio.get_event_loop()
-    success = await loop.run_in_executor(None, lambda: auth_manager.login(phone, password))
-
-    if success:
-        # Сохраняем номер телефона для восстановления сессии
-        auth_manager.phone = phone
-        user_sessions[user_id] = auth_manager
-        
-        # Сохраняем сессии в файл
-        save_user_sessions()
-        
-        await update.message.reply_text(
-            "🎉 **Вход выполнен успешно!**\n\n"
-            "Теперь вы можете:\n"
-            "• 👤 Просматривать свой профиль\n"
-            "• 🎫 Смотреть свои билеты\n"
-            "• 🚪 Выйти из аккаунта\n\n"
-            "💡 Ваша сессия сохранена и восстановится при перезапуске бота.",
-            reply_markup=get_main_menu_keyboard(user_id),
-            parse_mode='Markdown'
-        )
-    else:
-        await update.message.reply_text(
-            "❌ **Ошибка входа.**\n\nПожалуйста, проверьте ваш телефон и пароль и попробуйте снова.",
+    except Exception as e:
+        logger.error(f"Ошибка авторизации пользователя {user_id}: {e}")
+        await progress_message.edit_text(
+            "❌ **СИСТЕМНАЯ ОШИБКА**\n\n"
+            "Произошла непредвиденная ошибка при входе.\n"
+            "Попробуйте позже или обратитесь к администратору.",
             reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
     
     # Очищаем временные данные
-    del context.user_data['phone']
+    if 'phone' in context.user_data:
+        del context.user_data['phone']
     
     return ConversationHandler.END
 
 async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение профиля пользователя через Requests"""
+    """Получение профиля пользователя через улучшенную систему авторизации"""
     user_id = update.effective_user.id
-    if user_id not in user_sessions:
+    
+    if not bot_auth_manager.is_authenticated(user_id):
         if update.callback_query:
-            await update.callback_query.answer("Сначала нужно войти!", show_alert=True)
+            await update.callback_query.answer("❌ Сначала нужно войти в аккаунт!", show_alert=True)
+            await update.callback_query.edit_message_text(
+                "🔒 **Доступ запрещен**\n\n"
+                "Для просмотра профиля необходимо войти в аккаунт.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests"),
+                    InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                ]]),
+                parse_mode='Markdown'
+            )
         return
 
     if update.callback_query:
-        await update.callback_query.answer("Получаю данные профиля...")
-    auth_manager = user_sessions[user_id]
-    
+        await update.callback_query.answer("📋 Загружаю профиль...")
+
     try:
-        # Получаем данные профиля асинхронно
-        loop = asyncio.get_event_loop()
-        profile_data = await loop.run_in_executor(None, auth_manager.get_profile)
+        # Получаем профиль через новый менеджер
+        profile = bot_auth_manager.get_user_profile(user_id)
         
-        if profile_data:
-            profile_text = "**👤 Ваш профиль:**\n\n"
-            for key, value in profile_data.items():
-                profile_text += f"**{key.replace('_', ' ').capitalize()}:** {value}\n"
+        if profile:
+            profile_text = format_profile_message(profile)
             
-            profile_text += "\n💡 Используйте кнопки ниже для навигации."
+            keyboard = [
+                [InlineKeyboardButton("🔄 Обновить", callback_data="profile_requests")],
+                [InlineKeyboardButton("🎫 Мои бронирования", callback_data="tickets_requests")],
+                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+            ]
             
             if update.callback_query:
                 await update.callback_query.edit_message_text(
                     profile_text,
-                    reply_markup=get_main_menu_keyboard(user_id),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
             else:
                 await update.message.reply_text(
                     profile_text,
-                    reply_markup=get_main_menu_keyboard(user_id),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
         else:
-            error_text = "❌ **Не удалось получить данные профиля.**\n\nВозможно, сессия истекла. Попробуйте войти заново."
+            error_text = (
+                "❌ **Не удалось загрузить профиль**\n\n"
+                "Возможные причины:\n"
+                "• Сессия истекла\n"
+                "• Проблемы с подключением\n"
+                "• Ошибка сервера\n\n"
+                "💡 Попробуйте войти заново."
+            )
+            
+            keyboard = [
+                [InlineKeyboardButton("🔒 Войти заново", callback_data="login_requests")],
+                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+            ]
+            
             if update.callback_query:
                 await update.callback_query.edit_message_text(
                     error_text,
-                    reply_markup=get_main_menu_keyboard(user_id),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
             else:
                 await update.message.reply_text(
                     error_text,
-                    reply_markup=get_main_menu_keyboard(user_id),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
+    
     except Exception as e:
-        logger.error(f"Ошибка при получении профиля: {e}")
-        error_text = "❌ **Произошла ошибка при получении профиля.**\n\nПопробуйте позже."
+        logger.error(f"Ошибка при получении профиля пользователя {user_id}: {e}")
+        error_text = "❌ **Системная ошибка при загрузке профиля**\n\nПопробуйте позже."
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Повторить", callback_data="profile_requests")],
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+        ]
+        
         if update.callback_query:
             await update.callback_query.edit_message_text(
                 error_text,
-                reply_markup=get_main_menu_keyboard(user_id),
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
         else:
             await update.message.reply_text(
                 error_text,
-                reply_markup=get_main_menu_keyboard(user_id),
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
 
 async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение билетов пользователя через Requests"""
+    """Получение бронирований пользователя через улучшенную систему авторизации"""
     user_id = update.effective_user.id
-    if user_id not in user_sessions:
+    
+    if not bot_auth_manager.is_authenticated(user_id):
         if update.callback_query:
-            await update.callback_query.answer("Сначала нужно войти!", show_alert=True)
+            await update.callback_query.answer("❌ Сначала нужно войти в аккаунт!", show_alert=True)
+            await update.callback_query.edit_message_text(
+                "🔒 **Доступ запрещен**\n\n"
+                "Для просмотра бронирований необходимо войти в аккаунт.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests"),
+                    InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+                ]]),
+                parse_mode='Markdown'
+            )
         return
 
     if update.callback_query:
-        await update.callback_query.answer("Получаю список ваших билетов...")
-    auth_manager = user_sessions[user_id]
-    
+        await update.callback_query.answer("🎫 Загружаю бронирования...")
+
     try:
-        # Получаем билеты асинхронно
-        loop = asyncio.get_event_loop()
-        tickets = await loop.run_in_executor(None, auth_manager.get_tickets)
+        # Получаем бронирования через новый менеджер
+        upcoming_bookings = bot_auth_manager.get_user_bookings(user_id, "upcoming")
         
-        if tickets:
-            message_text = "**🎫 Ваши активные билеты:**\n\n"
-            for i, ticket in enumerate(tickets, 1):
-                message_text += f"**Билет #{i}:**\n"
-                for key, value in ticket.items():
-                    message_text += f"• **{key.replace('_', ' ').capitalize()}:** {value}\n"
-                message_text += "\n"
-        else:
-            message_text = "📭 **У вас нет активных билетов.**\n\n💡 Вы можете забронировать билеты на сайте билет.маршруточка.бел"
-
-        message_text += "\n💡 Используйте кнопки ниже для навигации."
-
+        # Форматируем сообщение
+        message_text = format_bookings_message(upcoming_bookings, "upcoming")
+        
+        # Создаем клавиатуру с дополнительными опциями
+        keyboard = [
+            [
+                InlineKeyboardButton("📅 Предстоящие", callback_data="bookings_upcoming"),
+                InlineKeyboardButton("✅ Выполненные", callback_data="bookings_completed")
+            ],
+            [
+                InlineKeyboardButton("❌ Отмененные", callback_data="bookings_cancelled"),
+                InlineKeyboardButton("🔄 Обновить", callback_data="tickets_requests")
+            ],
+            [
+                InlineKeyboardButton("👤 Профиль", callback_data="profile_requests"),
+                InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")
+            ]
+        ]
+        
         if update.callback_query:
             await update.callback_query.edit_message_text(
                 message_text,
-                reply_markup=get_main_menu_keyboard(user_id),
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
         else:
             await update.message.reply_text(
                 message_text,
-                reply_markup=get_main_menu_keyboard(user_id),
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
+    
     except Exception as e:
-        logger.error(f"Ошибка при получении билетов: {e}")
-        error_text = "❌ **Произошла ошибка при получении билетов.**\n\nПопробуйте позже."
+        logger.error(f"Ошибка при получении бронирований пользователя {user_id}: {e}")
+        error_text = "❌ **Системная ошибка при загрузке бронирований**\n\nПопробуйте позже."
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Повторить", callback_data="tickets_requests")],
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+        ]
+        
         if update.callback_query:
             await update.callback_query.edit_message_text(
                 error_text,
-                reply_markup=get_main_menu_keyboard(user_id),
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
         else:
             await update.message.reply_text(
                 error_text,
-                reply_markup=get_main_menu_keyboard(user_id),
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
 
 async def logout_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Выход из аккаунта"""
+    """Выход из аккаунта через улучшенную систему авторизации"""
     user_id = update.effective_user.id
     
-    if user_id in user_sessions:
-        # Удаляем сессию пользователя
-        del user_sessions[user_id]
+    if bot_auth_manager.is_authenticated(user_id):
+        # Выполняем выход через менеджер
+        success = bot_auth_manager.logout(user_id)
         
-        # Сохраняем изменения в файл
-        save_user_sessions()
-        
-        await update.callback_query.answer("Выход выполнен")
-        await update.callback_query.edit_message_text(
-            "🚪 **Выход выполнен успешно!**\n\n"
-            "💡 Чтобы снова войти в аккаунт, используйте кнопку \"🔒 Войти в аккаунт\"",
-            reply_markup=get_main_menu_keyboard(user_id),
-            parse_mode='Markdown'
-        )
+        if success:
+            if update.callback_query:
+                await update.callback_query.answer("✅ Выход выполнен")
+                await update.callback_query.edit_message_text(
+                    "🚪 **ВЫХОД ВЫПОЛНЕН УСПЕШНО!**\n\n"
+                    "✅ Вы вышли из аккаунта\n"
+                    "🗑️ Сессия удалена\n"
+                    "🔒 Данные очищены\n\n"
+                    "💡 Чтобы снова войти в аккаунт, используйте кнопку \"🔒 Войти в аккаунт\"",
+                    reply_markup=get_main_menu_keyboard(user_id),
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text(
+                    "🚪 **ВЫХОД ВЫПОЛНЕН УСПЕШНО!**\n\n"
+                    "💡 Чтобы снова войти в аккаунт, используйте кнопку \"🔒 Войти в аккаунт\"",
+                    reply_markup=get_main_menu_keyboard(user_id),
+                    parse_mode='Markdown'
+                )
+            logger.info(f"Пользователь {user_id} вышел из аккаунта")
+        else:
+            if update.callback_query:
+                await update.callback_query.answer("❌ Ошибка при выходе", show_alert=True)
+            logger.error(f"Ошибка при выходе пользователя {user_id}")
     else:
-        await update.callback_query.answer("Вы не были авторизованы", show_alert=True)
+        if update.callback_query:
+            await update.callback_query.answer("❌ Вы не были авторизованы", show_alert=True)
+            await update.callback_query.edit_message_text(
+                "ℹ️ **Вы не были авторизованы в системе**\n\n"
+                "💡 Используйте кнопку \"🔒 Войти в аккаунт\" для входа",
+                reply_markup=get_main_menu_keyboard(user_id),
+                parse_mode='Markdown'
+            )
 
-
-async def handle_direction_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора направления"""
+async def handle_bookings_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик фильтрации бронирований по статусу"""
     query = update.callback_query
-    await query.answer()
+    user_id = update.effective_user.id
     
-    user_id = query.from_user.id
-    data = query.data
+    if not bot_auth_manager.is_authenticated(user_id):
+        await query.answer("❌ Сначала нужно войти в аккаунт!", show_alert=True)
+        return
     
-    if data.startswith("dir_"):
-        direction = data.replace("dir_", "")
-        user_data_store[user_id]['direction'] = direction
+    # Определяем тип фильтра из callback_data
+    filter_type = query.data.split('_')[1]  # bookings_upcoming -> upcoming
+    
+    await query.answer(f"📋 Загружаю {filter_type} бронирования...")
+    
+    try:
+        # Получаем бронирования нужного типа
+        bookings = bot_auth_manager.get_user_bookings(user_id, filter_type)
         
-        direction_text = {
-            "minsk_ostrovets": "Минск → Островец",
-            "ostrovets_minsk": "Островец → Минск", 
-            "both": "Оба направления"
-        }.get(direction, direction)
+        # Форматируем сообщение
+        message_text = format_bookings_message(bookings, filter_type)
+        
+        # Обновляем клавиатуру с подсветкой активного фильтра
+        keyboard = []
+        
+        # Кнопки фильтров
+        filters_row = []
+        if filter_type == "upcoming":
+            filters_row.append(InlineKeyboardButton("📅 Предстоящие ✅", callback_data="bookings_upcoming"))
+        else:
+            filters_row.append(InlineKeyboardButton("📅 Предстоящие", callback_data="bookings_upcoming"))
+            
+        if filter_type == "completed":
+            filters_row.append(InlineKeyboardButton("✅ Выполненные ✅", callback_data="bookings_completed"))
+        else:
+            filters_row.append(InlineKeyboardButton("✅ Выполненные", callback_data="bookings_completed"))
+        
+        keyboard.append(filters_row)
+        
+        # Вторая строка фильтров
+        filters_row2 = []
+        if filter_type == "cancelled":
+            filters_row2.append(InlineKeyboardButton("❌ Отмененные ✅", callback_data="bookings_cancelled"))
+        else:
+            filters_row2.append(InlineKeyboardButton("❌ Отмененные", callback_data="bookings_cancelled"))
+            
+        filters_row2.append(InlineKeyboardButton("🔄 Обновить", callback_data=f"bookings_{filter_type}"))
+        keyboard.append(filters_row2)
+        
+        # Навигационные кнопки
+        keyboard.append([
+            InlineKeyboardButton("👤 Профиль", callback_data="profile_requests"),
+            InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
+        ])
         
         await query.edit_message_text(
-            f"✅ **Направление:** {direction_text}\n\n"
-            "⏰ **Шаг 3:** Что важнее - время отправления или прибытия?",
-            reply_markup=get_time_type_keyboard(),
+            message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
-        
-        return CHOOSE_TIME_TYPE
     
-    elif data == "back_to_date":
+    except Exception as e:
+        logger.error(f"Ошибка при фильтрации бронирований {filter_type} для пользователя {user_id}: {e}")
+        
+        error_text = f"❌ **Ошибка при загрузке {filter_type} бронирований**\n\nПопробуйте позже."
+        keyboard = [
+            [InlineKeyboardButton("🔄 Повторить", callback_data=f"bookings_{filter_type}")],
+            [InlineKeyboardButton("🔙 К бронированиям", callback_data="tickets_requests")],
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+        ]
+        
         await query.edit_message_text(
-            "🔔 **Настройка мониторинга рейсов**\n\n"
-            "Я буду проверять появление мест каждые 5 минут и уведомлять вас!\n\n"
-            "📅 **Шаг 1:** Выберите дату поездки:",
-            reply_markup=get_date_keyboard(),
+            error_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
-        
-        return CHOOSE_DATE
-    
-    return CHOOSE_DIRECTION
+
+# ==================== MONITORING HANDLERS ====================
 
 async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора типа времени"""
@@ -1125,7 +1295,8 @@ async def send_monitoring_notification(
             
             message_parts.append(f"**{i}. {direction}**")
             message_parts.append(f"🚀 {route.get('departure_time')} → 🎯 {route.get('arrival_time')}")
-            message_parts.append(f"{emoji} **{seats} мест** | {route.get('carrier', 'н/д')}")
+            # Убираем "| Евротранспорт-Сервис" из уведомлений
+            message_parts.append(f"{emoji} **{seats} мест**")
             message_parts.append("")
         
         if len(routes) > 5:
@@ -1133,27 +1304,105 @@ async def send_monitoring_notification(
         
         message_parts.extend([
             "",
-            "💡 Для бронирования перейдите на сайт билет.маршруточка.бел",
-            "",
-            "🔄 Мониторинг продолжается..."
+            "📡 Мониторинг продолжается..."
         ])
         
         message = "\n".join(message_parts)
         
-        keyboard = InlineKeyboardMarkup([
+        # Создаем кнопки с веб-приложениями
+        keyboard_buttons = [
             [InlineKeyboardButton("🛑 Остановить мониторинг", callback_data="stop_monitoring")],
             [InlineKeyboardButton("📊 Управление", callback_data="manage_monitoring")]
-        ])
+        ]
+        
+        # Добавляем кнопку веб-приложения для быстрого бронирования
+        webapp_keyboard = create_webapp_keyboard(config['direction'], config['date'], keyboard_buttons)
         
         await bot.send_message(
             chat_id=chat_id,
             text=message,
-            reply_markup=keyboard,
-            parse_mode='Markdown'
+            parse_mode='Markdown',
+            reply_markup=webapp_keyboard
         )
         
     except Exception as e:
-        logger.error(f"Ошибка при отправке уведомления пользователю {user_id}: {e}")
+        logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
+
+# ==================== NEW SEARCH FUNCTIONS ====================
+
+async def handle_direction_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка выбора направления для поиска"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    data = query.data
+    
+    # Сохраняем выбранное направление
+    if user_id not in user_data_store:
+        user_data_store[user_id] = {}
+    
+    user_data_store[user_id]['search_direction'] = data.replace('search_dir_', '')
+    
+    # Показываем календарь для выбора даты
+    keyboard = get_date_keyboard()
+    
+    await query.edit_message_text(
+        "📅 **Выберите дату для поиска рейсов:**",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+    
+    return SEARCH_DATE
+
+async def handle_search_with_direction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка поиска с выбранным направлением и датой"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    date = query.data.replace('date_', '')
+    
+    user_data = user_data_store.get(user_id, {})
+    direction = user_data.get('search_direction', 'both')
+    
+    await query.edit_message_text(
+        f"🔍 **Ищу рейсы на {date}...**",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        await init_parser()
+        routes_data = await parser.get_all_routes(date)
+        message = format_routes_message(routes_data, date, direction)
+        
+        # Создаем клавиатуру с веб-приложениями в зависимости от направления
+        webapp_keyboard = create_webapp_keyboard(direction, date, [
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+        ])
+        
+        await query.edit_message_text(
+            message,
+            parse_mode='Markdown',
+            reply_markup=webapp_keyboard
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка поиска рейсов: {e}")
+        await query.edit_message_text(
+            "❌ **Ошибка поиска рейсов**\n\nПопробуйте позже.",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔍 Повторить поиск", callback_data="search_routes")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+            ])
+        )
+    
+    # Очищаем временные данные
+    if user_id in user_data_store:
+        user_data_store[user_id].pop('search_direction', None)
+    
+    return ConversationHandler.END
 
 # ==================== COMMAND HANDLERS ====================
 
@@ -1213,27 +1462,31 @@ async def monitoring_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обычный поиск рейсов по дате"""
-    text = update.message.text.strip()
+    """Начало процесса поиска рейсов с выбором направления"""
+    # Создаем клавиатуру для выбора направления
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏙️ Минск → Островец", callback_data="search_dir_minsk_ostrovets")],
+        [InlineKeyboardButton("🏘️ Островец → Минск", callback_data="search_dir_ostrovets_minsk")],
+        [InlineKeyboardButton("🔄 Оба направления", callback_data="search_dir_both")],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+    ])
     
-    if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
-        try:
-            datetime.strptime(text, '%Y-%m-%d')
-            await update.message.reply_text(f"🔍 **Ищу рейсы на {text}...**", parse_mode='Markdown')
-            
-            await init_parser()
-            routes_data = await parser.get_all_routes(text)
-            message = format_routes_message(routes_data, text)
-            await update.message.reply_text(message, parse_mode='Markdown')
-        except Exception:
-            await update.message.reply_text("❌ **Ошибка поиска**", parse_mode='Markdown')
-    else:
+    if update.message:
         await update.message.reply_text(
-            "💡 Отправьте дату в формате **YYYY-MM-DD** или используйте /help",
-            parse_mode='Markdown'
+            "🛣️ **Выберите направление для поиска:**",
+            parse_mode='Markdown',
+            reply_markup=keyboard
         )
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(
+            "🛣️ **Выберите направление для поиска:**",
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+    
+    return SEARCH_FROM
 
-def format_routes_message(routes_data, date):
+def format_routes_message(routes_data, date, direction='both'):
     """Форматирование сообщения с рейсами"""
     if not routes_data.get('success', False):
         return "❌ **Не удалось получить данные**"
@@ -1241,27 +1494,58 @@ def format_routes_message(routes_data, date):
     minsk_routes = routes_data.get('minsk_to_ostrovets', [])[:8]
     ostrovets_routes = routes_data.get('ostrovets_to_minsk', [])[:8]
     
+    # Определяем направление из данных direction
+    if direction == 'search_dir_minsk_ostrovets':
+        direction = 'minsk_ostrovets'
+    elif direction == 'search_dir_ostrovets_minsk':
+        direction = 'ostrovets_minsk'
+    elif direction == 'search_dir_both':
+        direction = 'both'
+    
     parts = [f"📅 **Рейсы на {date}**", ""]
     
-    if minsk_routes:
+    # Показываем только выбранное направление
+    if direction == 'minsk_ostrovets' and minsk_routes:
         parts.append("🚌 **Минск → Островец:**")
         for i, route in enumerate(minsk_routes, 1):
             seats = route.get('available_seats', 0)
             emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
             parts.append(f"{i}. **{route.get('departure_time')} → {route.get('arrival_time')}** ({route.get('duration', 'н/д')})")
-            parts.append(f"   {emoji} {seats} мест | {route.get('carrier', 'н/д')}")
-        parts.append("")
-    
-    if ostrovets_routes:
+            parts.append(f"   {emoji} {seats} мест")
+        parts.append(f"\n📊 **Всего рейсов:** {len(minsk_routes)}")
+        
+    elif direction == 'ostrovets_minsk' and ostrovets_routes:
         parts.append("🚌 **Островец → Минск:**")
         for i, route in enumerate(ostrovets_routes, 1):
             seats = route.get('available_seats', 0)
             emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
             parts.append(f"{i}. **{route.get('departure_time')} → {route.get('arrival_time')}** ({route.get('duration', 'н/д')})")
-            parts.append(f"   {emoji} {seats} мест | {route.get('carrier', 'н/д')}")
-    
-    total = len(routes_data.get('minsk_to_ostrovets', [])) + len(routes_data.get('ostrovets_to_minsk', []))
-    parts.append(f"\n📊 **Всего рейсов:** {total}")
+            parts.append(f"   {emoji} {seats} мест")
+        parts.append(f"\n📊 **Всего рейсов:** {len(ostrovets_routes)}")
+        
+    elif direction == 'both':
+        # Показываем оба направления только если выбрано "оба"
+        if minsk_routes:
+            parts.append("🚌 **Минск → Островец:**")
+            for i, route in enumerate(minsk_routes, 1):
+                seats = route.get('available_seats', 0)
+                emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
+                parts.append(f"{i}. **{route.get('departure_time')} → {route.get('arrival_time')}** ({route.get('duration', 'н/д')})")
+                parts.append(f"   {emoji} {seats} мест")
+            parts.append("")
+        
+        if ostrovets_routes:
+            parts.append("🚌 **Островец → Минск:**")
+            for i, route in enumerate(ostrovets_routes, 1):
+                seats = route.get('available_seats', 0)
+                emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
+                parts.append(f"{i}. **{route.get('departure_time')} → {route.get('arrival_time')}** ({route.get('duration', 'н/д')})")
+                parts.append(f"   {emoji} {seats} мест")
+        
+        total = len(minsk_routes) + len(ostrovets_routes)
+        parts.append(f"\n📊 **Всего рейсов:** {total}")
+    else:
+        parts.append("❌ **Рейсы не найдены для выбранного направления**")
     
     return "\n".join(parts)
 
@@ -1316,12 +1600,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
     elif data == "search_routes":
-        await query.edit_message_text(
-            "🔍 **Поиск рейсов**\n\n"
-            "📅 Выберите дату для поиска:",
-            reply_markup=get_date_keyboard(),
-            parse_mode='Markdown'
-        )
+        # Новый поиск с выбором направления
+        await handle_regular_search(update, context)
+    
+    elif data.startswith("search_dir_"):
+        # Обработка выбора направления для поиска
+        await handle_direction_choice(update, context)
+    
+    elif data.startswith("date_") and user_id in user_data_store and 'search_direction' in user_data_store[user_id]:
+        # Поиск с выбранным направлением и датой
+        await handle_search_with_direction(update, context)
     
     elif data.startswith("date_") and user_id not in user_data_store:
         # Обычный поиск по дате
@@ -1377,6 +1665,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "logout_requests":
         # Вызываем обработчик выхода
         await logout_requests(update, context)
+    
+    elif data.startswith("bookings_"):
+        # Обработчик фильтрации бронирований (bookings_upcoming, bookings_completed, bookings_cancelled)
+        await handle_bookings_filter(update, context)
     
     elif data == "help":
         await query.edit_message_text(
@@ -1500,11 +1792,13 @@ async def handle_auto_booking_menu(update: Update, context: ContextTypes.DEFAULT
     """Обработчик меню автобронирования"""
     query = update.callback_query
     user_id = query.from_user.id
-    
-    if user_id not in user_sessions:
+    # Предпочитаем новую систему авторизации (bot_auth_manager). Если пользователь не авторизован там,
+    # пробуем legacy user_sessions (RequestsAuthManager). Иначе просим авторизоваться.
+    legacy_ok = user_id in user_sessions
+    if not bot_auth_manager.is_authenticated(user_id) and not legacy_ok:
         await query.edit_message_text(
             "🔒 **Автобронирование недоступно**\n\n"
-            "Для использования автобронирования необходимо войти в аккаунт.",
+            "Для использования автобронирования необходимо войти в аккаунт (кнопка ниже).",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests"),
                 InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
@@ -1536,19 +1830,26 @@ async def handle_my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     user_id = query.from_user.id
     
-    if user_id not in user_sessions:
+    use_new = bot_auth_manager.is_authenticated(user_id)
+    if not use_new and user_id not in user_sessions:
         await query.answer("❌ Необходима авторизация")
         return
     
     await query.answer("📋 Загружаю ваши бронирования...")
     
     try:
-        auth_manager = user_sessions[user_id]
-        booking_manager = AutoBookingManager(auth_manager)
-        
-        # Получаем список бронирований асинхронно
-        loop = asyncio.get_event_loop()
-        bookings = await loop.run_in_executor(None, booking_manager.get_user_bookings)
+        if use_new:
+            # Используем новый менеджер авторизации
+            bookings = bot_auth_manager.get_user_bookings(user_id, "upcoming")
+            # Преобразуем формат при необходимости
+            if bookings and isinstance(bookings, list) and hasattr(bookings[0], '__dict__'):
+                bookings = [b.__dict__ for b in bookings]
+        else:
+            auth_manager = user_sessions[user_id]
+            booking_manager = AutoBookingManager(auth_manager)
+            # Получаем список бронирований асинхронно (legacy)
+            loop = asyncio.get_event_loop()
+            bookings = await loop.run_in_executor(None, booking_manager.get_user_bookings)
         
         if bookings:
             message_parts = [
@@ -1777,7 +2078,7 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in user_sessions:
         await update.message.reply_text(
             "✅ **Вы уже авторизованы в системе!**\n\n"
-            "� Используйте кнопку \"Мой профиль\" для просмотра данных\n"
+            "👤 Используйте кнопку \"Мой профиль\" для просмотра данных\n"
             "🎫 Используйте кнопку \"Мои билеты\" для просмотра броней",
             parse_mode='Markdown'
         )
@@ -1888,9 +2189,9 @@ async def start_booking_conversation(update: Update, context: ContextTypes.DEFAU
     
     # Клавиатура для выбора количества пассажиров
     keyboard = []
-    for count in range(1, 6):  # От 1 до 5 пассажиров
+    for count in range(1, 3):  # От 1 до 2 пассажиров (максимум по правилам сайта)
         keyboard.append([InlineKeyboardButton(
-            f"{count} {'пассажир' if count == 1 else 'пассажира' if count < 5 else 'пассажиров'}",
+            f"{count} {'пассажир' if count == 1 else 'пассажира'}",
             callback_data=f"passengers_{count}"
         )])
     
@@ -1899,7 +2200,7 @@ async def start_booking_conversation(update: Update, context: ContextTypes.DEFAU
     await query.edit_message_text(
         "🎫 **БРОНИРОВАНИЕ РЕЙСА**\n\n"
         "👥 Выберите количество пассажиров:\n\n"
-        "💡 Максимальное количество пассажиров: 5",
+        "💡 Максимальное количество пассажиров: 2",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
@@ -2191,13 +2492,24 @@ def register_handlers(application):
 
 def main():
     """Главная функция запуска бота"""
-    global application
+    global application, admin_panel
     
     # Получаем токен из переменных окружения
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
         logger.error("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения!")
         return
+    
+    # Инициализируем админ-панель
+    admin_telegram_id = os.getenv('ADMIN_TELEGRAM_ID')
+    if admin_telegram_id:
+        try:
+            admin_panel = AdminPanel(int(admin_telegram_id))
+            logger.info(f"👤 Админ-панель активирована для пользователя {admin_telegram_id}")
+        except ValueError:
+            logger.error("❌ ADMIN_TELEGRAM_ID должен быть числом!")
+    else:
+        logger.warning("⚠️ ADMIN_TELEGRAM_ID не установлен - админ-панель недоступна")
     
     logger.info("🚀 Запуск бота MarhrutochkaTG...")
     
@@ -2255,15 +2567,6 @@ def main():
                 logger.info("⏰ JobQueue остановлен")
         except Exception as e:
             logger.error(f"Ошибка при завершении JobQueue: {e}", exc_info=True)
-
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        logger.info("👋 Бот остановлен пользователем")
-    except Exception as e:
-        logger.error(f"💥 Фатальная ошибка: {e}", exc_info=True)
-        sys.exit(1)
 
 if __name__ == "__main__":
     try:
