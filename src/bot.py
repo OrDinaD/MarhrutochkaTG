@@ -31,55 +31,17 @@ from telegram.ext import (
 )
 from telegram.warnings import PTBUserWarning
 
-# Импортируем новый менеджер аутентификации
+# Импортируем модули с новой структурой
 try:
-    from .requests_auth import RequestsAuthManager
-except ImportError:
-    from requests_auth import RequestsAuthManager
-
-# Импортируем парсер
-try:
-    from .parser import FinalMarshrutochkaParser
-except ImportError:
-    from parser import FinalMarshrutochkaParser
-
-# Импортируем наш менеджер логирования
-try:
-    from .log_manager import setup_logging
-    from .railway_logger_enhanced import railway_logger, setup_logging as setup_railway_logging
-except ImportError:
-    try:
-        from log_manager import setup_logging
-        from railway_logger_enhanced import railway_logger, setup_logging as setup_railway_logging
-    except ImportError:
-        # Fallback для продакшена
-        def setup_logging(level):
-            logging.basicConfig(
-                level=level,
-                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            return logging.getLogger(__name__)
-        
-        def setup_railway_logging(level):
-            return setup_logging(level)
-        
-        railway_logger = None
-
-# Импортируем новые модули автобронирования и админ-панели
-try:
-    from .auto_booking import AutoBookingManager
+    from .auth import RequestsAuthManager, bot_auth_manager, format_profile_message, format_bookings_message
+    from .utils import FinalMarshrutochkaParser, AutoBookingManager
+    from .monitoring import setup_logging, railway_logger, crash_handler, diagnostic_system, auto_recovery
     from .admin_panel import AdminPanel
-    from .bot_auth_manager import bot_auth_manager, format_profile_message, format_bookings_message
-    from .crash_handler import crash_handler
-    from .diagnostic_system import diagnostic_system
-    from .auto_recovery import auto_recovery
 except ImportError:
-    from auto_booking import AutoBookingManager
+    from auth import RequestsAuthManager, bot_auth_manager, format_profile_message, format_bookings_message
+    from utils import FinalMarshrutochkaParser, AutoBookingManager
+    from monitoring import setup_logging, railway_logger, crash_handler, diagnostic_system, auto_recovery
     from admin_panel import AdminPanel
-    from bot_auth_manager import bot_auth_manager, format_profile_message, format_bookings_message
-    from crash_handler import crash_handler
-    from diagnostic_system import diagnostic_system
-    from auto_recovery import auto_recovery
 
 # Настройка логирования - используем Railway enhanced logger если доступен
 if railway_logger:
@@ -118,10 +80,16 @@ active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
 application = None  # will hold the Application instance
 admin_panel = None  # Административная панель
-DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'monitors.json')
+
+# Создаем директории для данных
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(os.path.join(DATA_DIR, 'user_sessions'), exist_ok=True)
+
+DATA_FILE = os.path.join(DATA_DIR, 'monitors.json')
 # Хранилище сессий (для legacy авторизации через RequestsAuthManager)
 user_sessions = {}
-USER_SESSIONS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'user_sessions.json')
+USER_SESSIONS_FILE = os.path.join(DATA_DIR, 'user_sessions.json')
 
 def load_user_sessions():
     """Загрузка сессий пользователей из файла (legacy RequestsAuthManager)."""
