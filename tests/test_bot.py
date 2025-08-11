@@ -1,61 +1,37 @@
-#!/usr/bin/env python3
-"""
-Тестовый скрипт для проверки Telegram-бота
-"""
-
-import asyncio
+import unittest
+from unittest.mock import MagicMock, AsyncMock
+import sys
 import os
-from dotenv import load_dotenv
-from telegram import Bot
-from telegram.error import TelegramError
+import asyncio
 
-# Загружаем переменные окружения
-load_dotenv()
+# Ensure the src directory is in the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
-async def test_bot_connection():
-    """Тест подключения к Telegram-боту"""
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    
-    if not token:
-        print("❌ Токен не найден в файле .env")
-        return False
-    
-    try:
-        bot = Bot(token)
-        
-        # Получаем информацию о боте
-        bot_info = await bot.get_me()
-        
-        print(f"✅ Подключение к боту успешно!")
-        print(f"🤖 Имя бота: {bot_info.first_name}")
-        print(f"🔗 Username: @{bot_info.username}")
-        print(f"🆔 ID: {bot_info.id}")
-        
-        return True
-        
-    except TelegramError as e:
-        print(f"❌ Ошибка подключения к Telegram: {e}")
-        return False
-    except Exception as e:
-        print(f"❌ Неожиданная ошибка: {e}")
-        return False
+from bot import start, help_command
 
-async def main():
-    """Основная функция тестирования"""
-    print("🧪 Тестирование Telegram-бота...")
-    print("=" * 50)
-    
-    # Проверяем подключение к боту
-    connection_ok = await test_bot_connection()
-    
-    if connection_ok:
-        print("\n✅ Все тесты пройдены успешно!")
-        print("🚀 Бот готов к запуску!")
-        print("\nДля запуска бота используйте:")
-        print("./scripts/start_bot.sh")
-    else:
-        print("\n❌ Тесты не пройдены")
-        print("Проверьте настройки в файле .env")
+class TestBot(unittest.TestCase):
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    def test_start_command(self):
+        """Test the start command handler."""
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        
+        # Run the async function
+        asyncio.run(start(update, context))
+        
+        update.message.reply_text.assert_called_once()
+
+    def test_help_command_response(self):
+        """Check if the help command sends the correct message."""
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        
+        # Run the async function
+        asyncio.run(help_command(update, context))
+        
+        update.message.reply_text.assert_called_once()
+
+if __name__ == '__main__':
+    unittest.main()

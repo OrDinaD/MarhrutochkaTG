@@ -11,7 +11,7 @@ from datetime import datetime
 # Добавляем src в путь для импорта
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from src.railway_logger import RailwayLogger
+from src.monitoring.railway_logger_enhanced import RailwayLoggerEnhanced
 
 def test_railway_logging():
     """Тестирование всех возможностей Railway logger"""
@@ -20,7 +20,7 @@ def test_railway_logging():
     print("=" * 50)
     
     # Создаем логгер
-    logger = RailwayLogger("TestBot")
+    logger = RailwayLoggerEnhanced("TestBot")
     
     # 1. Тестируем основные уровни логирования
     print("\n1️⃣ Основные уровни логирования:")
@@ -89,7 +89,7 @@ def test_railway_logging():
     # 6. Тестируем удобные функции
     print("\n6️⃣ Удобные функции:")
     
-    from src.railway_logger import log_startup, log_user_action, log_error
+    from src.monitoring.railway_logger_enhanced import log_startup, log_user_action, log_error
     
     log_startup("TestApp", version="1.0.0", environment="test")
     log_user_action(12345, "button_click", button="start")

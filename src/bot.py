@@ -10,9 +10,10 @@ import asyncio
 import json
 import sys
 import re
-import traceback
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения
@@ -37,11 +38,13 @@ try:
     from .utils import FinalMarshrutochkaParser, AutoBookingManager
     from .monitoring import setup_logging, railway_logger, crash_handler, diagnostic_system, auto_recovery
     from .admin_panel import AdminPanel
+    from .security import security
 except ImportError:
     from auth import RequestsAuthManager, bot_auth_manager, format_profile_message, format_bookings_message
     from utils import FinalMarshrutochkaParser, AutoBookingManager
     from monitoring import setup_logging, railway_logger, crash_handler, diagnostic_system, auto_recovery
     from admin_panel import AdminPanel
+    from security import security
 
 # Настройка логирования - используем Railway enhanced logger если доступен
 if railway_logger:
@@ -574,11 +577,12 @@ async def start_login_requests(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def handle_phone_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка ввода телефона для входа"""
-    phone = update.message.text.strip()
+    phone = security.sanitize_input(update.message.text, max_length=20)
     user_id = update.effective_user.id
     
-    # Простая валидация номера
-    if not phone or len(phone) < 9:
+    # Валидация номера
+    if not security.validate_phone(phone):
+        security.log_security_event("invalid_phone_format", user_id, {"phone": phone})
         await update.message.reply_text(
             "❌ **Неверный формат номера**\n\n"
             "Введите номер в формате: `+375XXXXXXXXX`",
@@ -596,7 +600,7 @@ async def handle_phone_requests(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка пароля и выполнение авторизации"""
-    password = update.message.text.strip()
+    password = security.sanitize_input(update.message.text)
     user_id = update.effective_user.id
     phone = context.user_data.get('phone')
 
@@ -977,6 +981,45 @@ async def handle_bookings_filter(update: Update, context: ContextTypes.DEFAULT_T
 
 # ==================== MONITORING HANDLERS ====================
 
+async def handle_monitoring_direction_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка выбора направления для мониторинга"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    data = query.data
+    
+    if data.startswith("dir_"):
+        direction = data.replace("dir_", "")
+        user_data_store[user_id]['direction'] = direction
+        
+        direction_text = {
+            "minsk_ostrovets": "Минск → Островец",
+            "ostrovets_minsk": "Островец → Минск", 
+            "both": "Оба направления"
+        }.get(direction, direction)
+        
+        await query.edit_message_text(
+            f"✅ **Направление:** {direction_text}\n\n"
+            "⏰ **Шаг 3:** Что важнее для вас?",
+            reply_markup=get_time_type_keyboard(),
+            parse_mode='Markdown'
+        )
+        
+        return CHOOSE_TIME_TYPE
+        
+    elif data == "back_to_date":
+        # Возвращаемся к выбору даты
+        await query.edit_message_text(
+            "📅 **Шаг 1:** Выберите дату поездки:",
+            reply_markup=get_date_keyboard(),
+            parse_mode='Markdown'
+        )
+        
+        return CHOOSE_DATE
+    
+    return CHOOSE_DIRECTION
+
 async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора типа времени"""
     query = update.callback_query
@@ -1142,7 +1185,7 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
 async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка текстового ввода"""
     user_id = update.effective_user.id
-    text = update.message.text.strip()
+    text = security.sanitize_input(update.message.text)
     
     if user_id not in user_data_store:
         # Обычный поиск рейсов
@@ -1776,7 +1819,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    data = query.data
+    # Sanitize callback data to prevent injection attacks
+    data = security.sanitize_callback_data(query.data)
     user_id = query.from_user.id
     
     if data == "setup_monitoring":
@@ -2314,7 +2358,18 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_login_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняет номер телефона и запрашивает пароль"""
-    phone = update.message.text.strip()
+    phone = security.sanitize_input(update.message.text, max_length=20)
+    user_id = update.effective_user.id
+
+    if not security.validate_phone(phone):
+        security.log_security_event("invalid_legacy_phone_format", user_id, {"phone": phone})
+        await update.message.reply_text(
+            "❌ **Неверный формат номера**\n\n"
+            "Введите номер в формате: `+375XXXXXXXXX`",
+            parse_mode='Markdown'
+        )
+        return LOGIN_PHONE # Stay in the same state
+
     context.user_data['login_phone'] = phone
 
     await update.message.reply_text(
@@ -2327,7 +2382,7 @@ async def handle_login_phone(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Проводит авторизацию пользователя"""
     user_id = update.effective_user.id
-    password = update.message.text.strip()
+    password = security.sanitize_input(update.message.text)
     phone = context.user_data.get('login_phone', '')
 
     if not phone:
@@ -2632,7 +2687,7 @@ def register_handlers(application):
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
             ],
             CHOOSE_DIRECTION: [
-                CallbackQueryHandler(handle_direction_choice),
+                CallbackQueryHandler(handle_monitoring_direction_choice),
             ],
             CHOOSE_TIME_TYPE: [
                 CallbackQueryHandler(handle_time_type_choice),

@@ -14,9 +14,9 @@ from pathlib import Path
 # Добавляем src в путь
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from src.crash_handler import crash_handler
-from src.diagnostic_system import diagnostic_system
-from src.auto_recovery import auto_recovery
+from src.monitoring.crash_handler import crash_handler
+from src.monitoring.diagnostic_system import diagnostic_system
+from src.monitoring.auto_recovery import auto_recovery
 
 async def test_crash_detection():
     """Тестирует систему обнаружения крашей"""
