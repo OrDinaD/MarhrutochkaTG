@@ -1,29 +1,52 @@
+# Use the Python 3 official image optimized for Railway
+# https://hub.docker.com/_/python
 FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
-# Устанавливаем системные зависимости
+# Set environment variables for Railway deployment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies required for bot functionality
 RUN apt-get update && apt-get install -y \
     gcc \
-    && rm -rf /var/lib/apt/lists/*
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Копируем файлы зависимостей
-COPY requirements.txt .
+# Copy requirements first for better Docker layer caching
+COPY requirements.txt ./
 
-# Устанавливаем Python зависимости
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with optimizations
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
-# Копируем код приложения
-COPY . .
+# Copy application code
+COPY . ./
 
-# Создаем непривилегированного пользователя
-RUN useradd --create-home --shell /bin/bash app \
-    && chown -R app:app /app
-USER app
+# Create necessary directories for logging and data storage
+RUN mkdir -p logs crash_logs user_sessions backups temp_recovery \
+    && touch logs/bot.log \
+    && touch recovery_log.json
 
-# Указываем переменные окружения
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
+# Create a non-privileged user for security
+RUN useradd --create-home --shell /bin/bash --user-group railway \
+    && chown -R railway:railway /app
 
-# Запускаем приложение
-CMD ["python", "src/bot.py"]
+# Switch to non-privileged user
+USER railway
+
+# Health check endpoint for Railway monitoring
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)" || exit 1
+
+# Railway will automatically set the PORT environment variable
+# The bot will adapt to Railway's environment automatically
+
+# Start the bot with crash handling
+CMD ["python", "main.py"]

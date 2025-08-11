@@ -46,9 +46,11 @@ except ImportError:
 # Импортируем наш менеджер логирования
 try:
     from .log_manager import setup_logging
+    from .railway_logger_enhanced import railway_logger, setup_logging as setup_railway_logging
 except ImportError:
     try:
         from log_manager import setup_logging
+        from railway_logger_enhanced import railway_logger, setup_logging as setup_railway_logging
     except ImportError:
         # Fallback для продакшена
         def setup_logging(level):
@@ -57,23 +59,42 @@ except ImportError:
                 format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
             return logging.getLogger(__name__)
+        
+        def setup_railway_logging(level):
+            return setup_logging(level)
+        
+        railway_logger = None
 
 # Импортируем новые модули автобронирования и админ-панели
 try:
     from .auto_booking import AutoBookingManager
     from .admin_panel import AdminPanel
     from .bot_auth_manager import bot_auth_manager, format_profile_message, format_bookings_message
+    from .crash_handler import crash_handler
+    from .diagnostic_system import diagnostic_system
+    from .auto_recovery import auto_recovery
 except ImportError:
     from auto_booking import AutoBookingManager
     from admin_panel import AdminPanel
     from bot_auth_manager import bot_auth_manager, format_profile_message, format_bookings_message
+    from crash_handler import crash_handler
+    from diagnostic_system import diagnostic_system
+    from auto_recovery import auto_recovery
 
-# Настройка логирования
-logger = setup_logging(logging.INFO)
+# Настройка логирования - используем Railway enhanced logger если доступен
+if railway_logger:
+    logger = railway_logger
+    is_railway_logger = True
+else:
+    logger = setup_logging(logging.INFO)
+    is_railway_logger = False
 
 # Определяем, используем ли мы Railway logger
-from .railway_logger import RailwayLogger
-is_railway_logger = isinstance(logger, RailwayLogger)
+try:
+    from .railway_logger import RailwayLogger
+    is_railway_logger = is_railway_logger or isinstance(logger, RailwayLogger)
+except ImportError:
+    pass
 
 # Игнорируем предупреждения от python-telegram-bot о per_message
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -1450,25 +1471,216 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /help"""
     keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]]
     
+    help_text = """❓ **Справка по использованию**
+
+🔍 **Поиск рейсов:**
+• Отправьте дату в формате YYYY-MM-DD
+• Например: `2025-01-15`
+
+🔔 **Мониторинг:**
+• Выберите дату, направление и время
+• Бот проверяет каждые 5 минут
+• Уведомления при появлении мест
+
+📊 **Команды:**
+• `/start` - главное меню
+• `/monitoring` - управление мониторингом
+• `/profile` - ваш профиль
+• `/booking` - автоматическое бронирование
+• `/help` - эта справка
+
+🛠 **Система диагностики (админ):**
+• `/status` - статус системы мониторинга крашей
+• `/recovery_history` - история восстановлений
+• `/system_health` - проверка здоровья системы
+
+🚌 **Направления:**
+• Минск → Островец
+• Островец → Минск"""
+    
     await update.message.reply_text(
-        "❓ **Справка по использованию**\n\n"
-        "🔍 **Поиск рейсов:**\n"
-        "• Отправьте дату в формате YYYY-MM-DD\n"
-        "• Например: `2025-01-15`\n\n"
-        "🔔 **Мониторинг:**\n"
-        "• Выберите дату, направление и время\n"
-        "• Бот проверяет каждые 5 минут\n"
-        "• Уведомления при появлении мест\n\n"
-        "📊 **Команды:**\n"
-        "• `/start` - главное меню\n"
-        "• `/monitoring` - управление мониторингом\n"
-        "• `/help` - эта справка\n\n"
-        "🚌 **Направления:**\n"
-        "• Минск → Островец\n"
-        "• Островец → Минск",
+        help_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает статус системы диагностики"""
+    user_id = update.effective_user.id
+    
+    # Проверяем права администратора
+    if admin_panel and not admin_panel.is_admin(user_id):
+        await update.message.reply_text("❌ Эта команда доступна только администраторам")
+        return
+    
+    try:
+        status_info = {
+            "crash_handler": crash_handler is not None,
+            "diagnostic_system": diagnostic_system is not None,
+            "auto_recovery": auto_recovery is not None,
+            "railway_environment": bool(os.getenv('RAILWAY_SERVICE_NAME')),
+            "github_token": bool(os.getenv('GITHUB_TOKEN')),
+            "telegram_notifications": bool(os.getenv('ADMIN_TELEGRAM_ID')),
+            "crash_logs_count": len(list(Path('crash_logs').glob('*.json'))) if Path('crash_logs').exists() else 0,
+            "recovery_attempts": len(auto_recovery.recovery_log) if auto_recovery else 0
+        }
+        
+        status_text = f"""🛡️ **СТАТУС СИСТЕМЫ ДИАГНОСТИКИ**
+
+🔧 **Компоненты:**
+• Crash Handler: {'✅ Активен' if status_info['crash_handler'] else '❌ Неактивен'}
+• Диагностическая система: {'✅ Активна' if status_info['diagnostic_system'] else '❌ Неактивна'}
+• Автовосстановление: {'✅ Активно' if status_info['auto_recovery'] else '❌ Неактивно'}
+
+🌐 **Окружение:**
+• Railway: {'✅ Да' if status_info['railway_environment'] else '❌ Нет'}
+• GitHub токен: {'✅ Настроен' if status_info['github_token'] else '❌ Отсутствует'}
+• Telegram уведомления: {'✅ Настроены' if status_info['telegram_notifications'] else '❌ Отсутствуют'}
+
+📊 **Статистика:**
+• Логов крашей: {status_info['crash_logs_count']}
+• Попыток восстановления: {status_info['recovery_attempts']}
+
+⏰ **Последняя проверка:** {datetime.now().strftime('%H:%M:%S')}"""
+        
+        await update.message.reply_text(status_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения статуса: {str(e)}")
+
+async def recovery_history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает историю автоматических восстановлений"""
+    user_id = update.effective_user.id
+    
+    # Проверяем права администратора
+    if admin_panel and not admin_panel.is_admin(user_id):
+        await update.message.reply_text("❌ Эта команда доступна только администраторам")
+        return
+    
+    try:
+        if not auto_recovery:
+            await update.message.reply_text("❌ Система автовосстановления недоступна")
+            return
+        
+        recent_recoveries = auto_recovery.get_recovery_history(days=7)
+        
+        if not recent_recoveries:
+            await update.message.reply_text("📝 История восстановлений пуста (последние 7 дней)")
+            return
+        
+        history_text = "🔧 **ИСТОРИЯ АВТОМАТИЧЕСКИХ ВОССТАНОВЛЕНИЙ**\n\n"
+        
+        for recovery in recent_recoveries[-5:]:  # Последние 5 записей
+            success = recovery.get('success', False)
+            timestamp = recovery.get('timestamp', '')
+            crash_id = recovery.get('crash_id', 'unknown')
+            actions_count = len(recovery.get('actions_taken', []))
+            
+            try:
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                time_str = dt.strftime('%d.%m %H:%M')
+            except:
+                time_str = timestamp[:16] if timestamp else 'unknown'
+            
+            status_emoji = "✅" if success else "❌"
+            
+            history_text += f"{status_emoji} **{time_str}**\n"
+            history_text += f"   🆔 Crash ID: `{crash_id[:12]}...`\n"
+            history_text += f"   🛠 Действий: {actions_count}\n"
+            history_text += f"   📊 Результат: {'Успешно' if success else 'Неудачно'}\n\n"
+        
+        if len(recent_recoveries) > 5:
+            history_text += f"📊 Всего записей за 7 дней: {len(recent_recoveries)}"
+        
+        await update.message.reply_text(history_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения истории: {str(e)}")
+
+async def system_health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Проверяет здоровье системы"""
+    user_id = update.effective_user.id
+    
+    # Проверяем права администратора
+    if admin_panel and not admin_panel.is_admin(user_id):
+        await update.message.reply_text("❌ Эта команда доступна только администраторам")
+        return
+    
+    try:
+        await update.message.reply_text("🔍 Проверяю здоровье системы...")
+        
+        # Собираем информацию о системе
+        import psutil
+        import platform
+        
+        # Проверка системных ресурсов
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # Проверка сетевого подключения
+        network_ok = True
+        try:
+            response = requests.get('https://api.telegram.org', timeout=10)
+            network_ok = response.status_code == 200
+        except:
+            network_ok = False
+        
+        # Проверка файловой системы
+        critical_files_ok = True
+        critical_files = ['src/bot.py', 'requirements.txt']
+        for file_path in critical_files:
+            if not Path(file_path).exists():
+                critical_files_ok = False
+                break
+        
+        # Проверка логов
+        log_dir = Path('logs')
+        log_files_ok = log_dir.exists() and any(log_dir.glob('*.log'))
+        
+        # Формируем отчет
+        health_text = f"""🏥 **ЗДОРОВЬЕ СИСТЕМЫ**
+
+💻 **Системные ресурсы:**
+• CPU: {cpu_percent:.1f}% {'✅' if cpu_percent < 80 else '⚠️' if cpu_percent < 95 else '❌'}
+• Память: {memory.percent:.1f}% {'✅' if memory.percent < 80 else '⚠️' if memory.percent < 95 else '❌'}
+• Диск: {disk.percent:.1f}% {'✅' if disk.percent < 80 else '⚠️' if disk.percent < 95 else '❌'}
+
+🌐 **Сетевое подключение:**
+• Telegram API: {'✅ Доступен' if network_ok else '❌ Недоступен'}
+
+📁 **Файловая система:**
+• Критичные файлы: {'✅ В порядке' if critical_files_ok else '❌ Проблемы'}
+• Система логирования: {'✅ Работает' if log_files_ok else '❌ Проблемы'}
+
+🖥 **Платформа:**
+• Система: {platform.system()} {platform.release()}
+• Python: {platform.python_version()}
+• Архитектура: {platform.machine()}
+
+⏰ **Время проверки:** {datetime.now().strftime('%H:%M:%S')}"""
+        
+        # Общая оценка здоровья
+        health_score = sum([
+            cpu_percent < 80,
+            memory.percent < 80,
+            disk.percent < 80,
+            network_ok,
+            critical_files_ok,
+            log_files_ok
+        ]) / 6 * 100
+        
+        if health_score >= 80:
+            health_text += f"\n\n🎯 **Общая оценка:** {health_score:.0f}% - Отличное состояние ✅"
+        elif health_score >= 60:
+            health_text += f"\n\n🎯 **Общая оценка:** {health_score:.0f}% - Удовлетворительное состояние ⚠️"
+        else:
+            health_text += f"\n\n🎯 **Общая оценка:** {health_score:.0f}% - Требует внимания ❌"
+        
+        await update.message.reply_text(health_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка проверки здоровья системы: {str(e)}")
 
 async def monitoring_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /monitoring"""
@@ -2515,6 +2727,9 @@ def register_handlers(application):
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("monitoring", monitoring_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("recovery_history", recovery_history_command))
+    application.add_handler(CommandHandler("system_health", system_health_command))
     
     # Добавляем ConversationHandlers
     application.add_handler(monitoring_conv_handler)
@@ -2533,6 +2748,19 @@ def register_handlers(application):
 def main():
     """Главная функция запуска бота"""
     global application, admin_panel
+    
+    # Инициализируем систему обработки крашей в самом начале
+    try:
+        crash_handler.setup_crash_handling()
+        if is_railway_logger:
+            logger.system_action("Система обработки крашей активирована", {"status": "enabled"})
+        else:
+            logger.info("🛡️ Система обработки крашей активирована")
+    except Exception as e:
+        if is_railway_logger:
+            logger.system_action("Ошибка активации crash handler", {"error": str(e)}, level="error")
+        else:
+            logger.error(f"❌ Ошибка активации crash handler: {e}")
     
     # Получаем токен из переменных окружения
     token = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -2640,6 +2868,31 @@ def main():
             logger.bot_action("Критическая ошибка", {"error": str(e)}, level="error")
         else:
             logger.error(f"❌ Критическая ошибка: {e}", exc_info=True)
+        
+        # Обрабатываем краш через нашу систему
+        try:
+            async def handle_crash():
+                crash_analysis = await diagnostic_system.analyze_crash_report_from_exception(e)
+                if crash_analysis:
+                    recovery_result = await auto_recovery.attempt_auto_recovery(crash_analysis)
+                    if is_railway_logger:
+                        logger.system_action("Автоматическое восстановление завершено", {
+                            "success": recovery_result.get("success", False),
+                            "actions_count": len(recovery_result.get("actions_taken", [])),
+                            "crash_id": crash_analysis.get("crash_id")
+                        })
+                    else:
+                        logger.info(f"🔧 Автоматическое восстановление: {'успешно' if recovery_result.get('success') else 'неуспешно'}")
+            
+            # Запускаем асинхронную обработку краша
+            asyncio.run(handle_crash())
+            
+        except Exception as recovery_error:
+            if is_railway_logger:
+                logger.system_action("Ошибка автоматического восстановления", {"error": str(recovery_error)}, level="error")
+            else:
+                logger.error(f"❌ Ошибка автоматического восстановления: {recovery_error}")
+        
         traceback.print_exc()
     finally:
         # Graceful shutdown
