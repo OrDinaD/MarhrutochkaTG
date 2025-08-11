@@ -117,6 +117,41 @@ class BotAuthManager:
             logger.error(f"Ошибка получения бронирований пользователя {user_id}: {e}")
             return []
     
+    def search_routes(self, user_id: int, from_location: str, to_location: str, date: str):
+        """Поиск маршрутов для пользователя"""
+        if not self.is_authenticated(user_id):
+            logger.warning(f"Пользователь {user_id} не авторизован для поиска маршрутов")
+            return []
+            
+        try:
+            auth = self.sessions[user_id]
+            routes = auth.search_routes(from_location, to_location, date)
+            logger.info(f"Найдено {len(routes)} маршрутов для пользователя {user_id}")
+            return routes
+            
+        except Exception as e:
+            logger.error(f"Ошибка поиска маршрутов для пользователя {user_id}: {e}")
+            return []
+    
+    def book_ticket(self, user_id: int, booking_request) -> Optional:
+        """Бронирование билета для пользователя"""
+        if not self.is_authenticated(user_id):
+            logger.warning(f"Пользователь {user_id} не авторизован для бронирования")
+            return None
+            
+        try:
+            auth = self.sessions[user_id]
+            booking = auth.book_ticket(booking_request)
+            
+            if booking:
+                logger.info(f"Билет забронирован для пользователя {user_id}: {booking.booking_id}")
+            
+            return booking
+            
+        except Exception as e:
+            logger.error(f"Ошибка бронирования для пользователя {user_id}: {e}")
+            return None
+    
     def save_session(self, user_id: int) -> bool:
         """Сохраняет сессию пользователя"""
         if user_id not in self.sessions:
@@ -176,8 +211,17 @@ def format_profile_message(profile: UserProfile) -> str:
         ""
     ]
     
-    if profile.name or profile.surname:
-        full_name = f"{profile.name} {profile.patronymic} {profile.surname}".strip()
+    # Формируем полное ФИО в правильном порядке
+    name_parts = []
+    if profile.surname:  # Фамилия
+        name_parts.append(profile.surname)
+    if profile.name:     # Имя  
+        name_parts.append(profile.name)
+    if profile.patronymic:  # Отчество
+        name_parts.append(profile.patronymic)
+    
+    if name_parts:
+        full_name = " ".join(name_parts)
         message_parts.append(f"📝 **ФИО:** {full_name}")
     
     if profile.email:
@@ -187,7 +231,18 @@ def format_profile_message(profile: UserProfile) -> str:
         message_parts.append(f"📱 **Телефон:** {profile.phone}")
     
     if profile.birth_date:
-        message_parts.append(f"🎂 **Дата рождения:** {profile.birth_date}")
+        # Форматируем дату рождения
+        try:
+            from datetime import datetime
+            if '-' in profile.birth_date:
+                # Если дата в формате YYYY-MM-DD, переводим в DD.MM.YYYY
+                date_obj = datetime.strptime(profile.birth_date, '%Y-%m-%d')
+                formatted_date = date_obj.strftime('%d.%m.%Y')
+                message_parts.append(f"🎂 **Дата рождения:** {formatted_date}")
+            else:
+                message_parts.append(f"🎂 **Дата рождения:** {profile.birth_date}")
+        except:
+            message_parts.append(f"🎂 **Дата рождения:** {profile.birth_date}")
     
     if profile.passport_series:
         message_parts.append(f"🆔 **Серия паспорта:** {profile.passport_series}")
@@ -214,6 +269,86 @@ def format_bookings_message(bookings: list, booking_type: str = "upcoming") -> s
     if not bookings:
         message_parts.append("❌ Поездки не найдены")
         return "\n".join(message_parts)
+
+
+def format_routes_message(routes: list, from_location: str, to_location: str, date: str) -> str:
+    """Форматирует список маршрутов для отображения в боте"""
+    if not routes:
+        return f"❌ **Маршруты не найдены**\n\n📅 {date}\n🗺️ {from_location} → {to_location}"
+    
+    message_parts = [
+        f"🚌 **НАЙДЕННЫЕ МАРШРУТЫ**",
+        f"📅 **Дата:** {date}",
+        f"🗺️ **Маршрут:** {from_location} → {to_location}",
+        ""
+    ]
+    
+    for i, route in enumerate(routes[:5], 1):  # Показываем первые 5
+        route_info = [
+            f"**{i}. {route.departure_time}**"
+        ]
+        
+        if route.price:
+            route_info.append(f"💰 {route.price} руб.")
+        
+        if route.available_seats > 0:
+            route_info.append(f"🪑 {route.available_seats} мест")
+        else:
+            route_info.append("🚫 Мест нет")
+        
+        if route.bus_info:
+            route_info.append(f"🚐 {route.bus_info}")
+        
+        if route.duration:
+            route_info.append(f"⏱️ {route.duration}")
+        
+        message_parts.append(" • ".join(route_info))
+    
+    if len(routes) > 5:
+        message_parts.append(f"\n... и еще {len(routes) - 5} маршрутов")
+    
+    return "\n".join(message_parts)
+
+
+def format_booking_confirmation(booking, route_info=None) -> str:
+    """Форматирует подтверждение бронирования"""
+    if not booking:
+        return "❌ **Ошибка бронирования**\n\nНе удалось создать бронирование."
+    
+    message_parts = [
+        "✅ **БИЛЕТ ЗАБРОНИРОВАН!**",
+        "",
+        f"🎫 **Номер брони:** {booking.booking_id}",
+    ]
+    
+    if booking.ticket_number:
+        message_parts.append(f"🎟️ **Номер билета:** {booking.ticket_number}")
+    
+    if booking.date:
+        message_parts.append(f"📅 **Дата:** {booking.date}")
+    
+    if booking.departure_time:
+        message_parts.append(f"🕒 **Время отправления:** {booking.departure_time}")
+    
+    if booking.price:
+        message_parts.append(f"💰 **Стоимость:** {booking.price}")
+    
+    if route_info:
+        message_parts.extend([
+            "",
+            "📍 **Детали маршрута:**",
+            f"   🗺️ {route_info.get('from_location', '')} → {route_info.get('to_location', '')}",
+        ])
+    
+    message_parts.extend([
+        "",
+        "ℹ️ **Важно:**",
+        "• Сохраните номер брони",
+        "• Приезжайте на остановку за 10 минут",
+        "• При посадке предъявите документ"
+    ])
+    
+    return "\n".join(message_parts)
     
     for i, booking in enumerate(bookings[:10], 1):  # Показываем первые 10
         status_emoji = {

@@ -44,6 +44,30 @@ class UserBooking:
     status: str
 
 
+@dataclass
+class RouteInfo:
+    """Информация о маршруте"""
+    route_id: str
+    from_location: str
+    to_location: str
+    departure_time: str
+    arrival_time: str
+    price: str
+    available_seats: int
+    bus_info: str = ""
+    duration: str = ""
+
+
+@dataclass
+class BookingRequest:
+    """Запрос на бронирование"""
+    route_id: str
+    passenger_count: int
+    passenger_name: str
+    passenger_phone: str
+    departure_date: str
+
+
 class ImprovedWebAuth:
     """Улучшенная система веб-авторизации"""
     
@@ -250,11 +274,19 @@ class ImprovedWebAuth:
             response = self.session.get(profile_url)
             response.raise_for_status()
             
+            logger.info(f"Получен ответ на /profile, статус: {response.status_code}")
+            logger.info(f"Размер ответа: {len(response.text)} символов")
+            
+            # Логируем часть ответа для отладки
+            logger.debug(f"Начало HTML: {response.text[:500]}")
+            
             # Парсим профиль из HTML
             profile = self._parse_profile_from_html(response.text)
             if profile:
                 self.user_profile = profile
                 logger.info(f"Профиль загружен: {profile.name} {profile.surname}")
+            else:
+                logger.warning("Не удалось распарсить профиль из HTML")
             
             return profile
             
@@ -265,71 +297,49 @@ class ImprovedWebAuth:
     def _parse_profile_from_html(self, html: str) -> Optional[UserProfile]:
         """Парсит профиль пользователя из HTML"""
         try:
-            # Улучшенные паттерны для извлечения данных профиля
+            extracted = {}
+            
+            # Паттерны для поиска данных в input полях с value атрибутами
             patterns = {
                 'name': [
-                    r'textbox "Имя:" [^>]*value="([^"]*)"',
-                    r'<input[^>]*name="[^"]*name[^"]*"[^>]*value="([^"]*)"',
-                    r'placeholder="Имя"[^>]*value="([^"]*)"'
+                    r'name="first_name"[^>]*value="([^"]*)"',
+                    r'id="userName"[^>]*value="([^"]*)"'
                 ],
                 'surname': [
-                    r'textbox "Фамилия:[^"]*" [^>]*value="([^"]*)"',
-                    r'<input[^>]*name="[^"]*surname[^"]*"[^>]*value="([^"]*)"',
-                    r'placeholder="Фамилия"[^>]*value="([^"]*)"'
+                    r'name="last_name"[^>]*value="([^"]*)"',
+                    r'id="LastName"[^>]*value="([^"]*)"'
                 ],
                 'patronymic': [
-                    r'textbox "Отчество:" [^>]*value="([^"]*)"',
-                    r'<input[^>]*name="[^"]*patronymic[^"]*"[^>]*value="([^"]*)"',
-                    r'placeholder="Отчество"[^>]*value="([^"]*)"'
+                    r'name="middle_name"[^>]*value="([^"]*)"',
+                    r'id="MiddleName"[^>]*value="([^"]*)"'
                 ],
                 'email': [
-                    r'textbox "E-mail:" [^>]*value="([^"]*)"',
-                    r'<input[^>]*name="[^"]*email[^"]*"[^>]*value="([^"]*)"',
-                    r'placeholder="E-mail"[^>]*value="([^"]*)"'
+                    r'name="email"[^>]*value="([^"]*)"',
+                    r'id="email"[^>]*value="([^"]*)"'
                 ],
                 'phone': [
-                    r'textbox "Телефон:" [^>]*value="([^"]*)"',
-                    r'<input[^>]*name="[^"]*phone[^"]*"[^>]*value="([^"]*)"',
+                    r'name="phone"[^>]*value="([^"]*)"',
                     r'placeholder="Телефон"[^>]*value="([^"]*)"'
                 ],
                 'birth_date': [
-                    r'textbox "Дата рождения:" [^>]*value="([^"]*)"',
-                    r'<input[^>]*name="[^"]*birth[^"]*"[^>]*value="([^"]*)"',
-                    r'placeholder="Дата рождения"[^>]*value="([^"]*)"'
+                    r'name="birth_date"[^>]*value="([^"]*)"',
+                    r'name="birthday"[^>]*value="([^"]*)"'
                 ]
             }
             
-            # Также ищем данные в тексте страницы
-            text_patterns = {
-                'name': r'Имя:\s*([А-Яа-яA-Za-z]+)',
-                'surname': r'Фамилия:\s*([А-Яа-яA-Za-z]+)', 
-                'patronymic': r'Отчество:\s*([А-Яа-яA-Za-z]+)',
-                'email': r'E-mail:\s*([^\s<]+@[^\s<]+)',
-                'phone': r'Телефон:\s*(\+375\s*\([0-9]{2}\)\s*[0-9-]+)',
-                'birth_date': r'Дата рождения:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})'
-            }
-            
-            extracted = {}
-            
-            # Пробуем основные паттерны для input полей
+            # Ищем данные по паттернам
             for field, pattern_list in patterns.items():
                 for pattern in pattern_list:
                     match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
                     if match and match.group(1).strip():
-                        extracted[field] = match.group(1).strip()
-                        logger.debug(f"Найдено {field}: {extracted[field]}")
-                        break
+                        value = match.group(1).strip()
+                        if value and value not in ['+', '']:  # Исключаем пустые значения и одинокий +
+                            extracted[field] = value
+                            logger.debug(f"Найдено {field}: '{value}' паттерном: {pattern}")
+                            break
             
-            # Пробуем текстовые паттерны если не нашли в input
-            for field, pattern in text_patterns.items():
-                if field not in extracted or not extracted[field]:
-                    match = re.search(pattern, html, re.IGNORECASE)
-                    if match and match.group(1).strip():
-                        extracted[field] = match.group(1).strip()
-                        logger.debug(f"Найдено {field} в тексте: {extracted[field]}")
-            
-            # Если телефон все еще не найден, используем сохраненный номер
-            if not extracted.get('phone') and self.phone:
+            # Если телефон все еще не найден или содержит только +, используем сохраненный номер
+            if (not extracted.get('phone') or extracted.get('phone') == '+') and self.phone:
                 extracted['phone'] = self.phone
             
             # Логируем все найденные данные
@@ -434,6 +444,295 @@ class ImprovedWebAuth:
         except Exception as e:
             logger.error(f"Ошибка парсинга бронирований: {e}")
             return []
+    
+    def search_routes(self, from_location: str, to_location: str, date: str) -> List[RouteInfo]:
+        """
+        Поиск маршрутов
+        
+        Args:
+            from_location: Откуда (например: "Минск")
+            to_location: Куда (например: "Островец")
+            date: Дата в формате YYYY-MM-DD
+            
+        Returns:
+            List[RouteInfo]: Список найденных маршрутов
+        """
+        try:
+            # URL для поиска маршрутов
+            search_url = f"{self.base_url}/search"
+            
+            # Подготавливаем данные для поиска
+            search_data = {
+                'from': from_location,
+                'to': to_location,
+                'date': date,
+                'passengers': 1
+            }
+            
+            # Добавляем CSRF токен если есть
+            if self.csrf_token:
+                search_data['_token'] = self.csrf_token
+            
+            logger.info(f"Ищу маршруты: {from_location} → {to_location} на {date}")
+            
+            # Отправляем запрос поиска
+            response = self.session.post(search_url, data=search_data)
+            response.raise_for_status()
+            
+            logger.info(f"Получен ответ поиска, статус: {response.status_code}")
+            
+            # Парсим результаты поиска
+            routes = self._parse_routes_from_html(response.text)
+            logger.info(f"Найдено маршрутов: {len(routes)}")
+            
+            return routes
+            
+        except Exception as e:
+            logger.error(f"Ошибка поиска маршрутов: {e}")
+            return []
+    
+    def _parse_routes_from_html(self, html: str) -> List[RouteInfo]:
+        """Парсит маршруты из HTML результатов поиска"""
+        try:
+            routes = []
+            
+            # Ищем таблицу с маршрутами или карточки
+            # Примерный паттерн для строк таблицы маршрутов
+            route_pattern = r'<tr[^>]*class="[^"]*route[^"]*"[^>]*>(.*?)</tr>'
+            route_matches = re.findall(route_pattern, html, re.DOTALL | re.IGNORECASE)
+            
+            if not route_matches:
+                # Альтернативный поиск - по div блокам
+                route_pattern = r'<div[^>]*class="[^"]*route-item[^"]*"[^>]*>(.*?)</div>'
+                route_matches = re.findall(route_pattern, html, re.DOTALL | re.IGNORECASE)
+            
+            for match in route_matches:
+                route = self._parse_single_route(match)
+                if route:
+                    routes.append(route)
+            
+            # Если не нашли через паттерны, попробуем более простой подход
+            if not routes:
+                routes = self._parse_routes_simple(html)
+            
+            return routes
+            
+        except Exception as e:
+            logger.error(f"Ошибка парсинга маршрутов: {e}")
+            return []
+    
+    def _parse_single_route(self, route_html: str) -> Optional[RouteInfo]:
+        """Парсит один маршрут из HTML"""
+        try:
+            # Извлекаем данные маршрута
+            route_data = {}
+            
+            # ID маршрута
+            route_id_match = re.search(r'data-route-id="([^"]+)"', route_html)
+            if route_id_match:
+                route_data['route_id'] = route_id_match.group(1)
+            else:
+                # Генерируем временный ID
+                route_data['route_id'] = f"route_{hash(route_html) % 10000}"
+            
+            # Время отправления
+            time_patterns = [
+                r'<td[^>]*class="[^"]*time[^"]*"[^>]*>([^<]+)</td>',
+                r'<span[^>]*class="[^"]*departure[^"]*"[^>]*>([^<]+)</span>',
+                r'(\d{2}:\d{2})'
+            ]
+            
+            for pattern in time_patterns:
+                time_match = re.search(pattern, route_html)
+                if time_match:
+                    route_data['departure_time'] = time_match.group(1).strip()
+                    break
+            
+            # Цена
+            price_patterns = [
+                r'<td[^>]*class="[^"]*price[^"]*"[^>]*>([^<]+)</td>',
+                r'<span[^>]*class="[^"]*price[^"]*"[^>]*>([^<]+)</span>',
+                r'(\d+[.,]\d+)\s*руб'
+            ]
+            
+            for pattern in price_patterns:
+                price_match = re.search(pattern, route_html)
+                if price_match:
+                    route_data['price'] = price_match.group(1).strip()
+                    break
+            
+            # Количество свободных мест
+            seats_patterns = [
+                r'<td[^>]*class="[^"]*seats[^"]*"[^>]*>([^<]+)</td>',
+                r'(\d+)\s*мест'
+            ]
+            
+            for pattern in seats_patterns:
+                seats_match = re.search(pattern, route_html)
+                if seats_match:
+                    try:
+                        route_data['available_seats'] = int(re.search(r'\d+', seats_match.group(1)).group())
+                    except:
+                        route_data['available_seats'] = 0
+                    break
+            
+            # Если нашли основные данные, создаем маршрут
+            if route_data.get('departure_time') and route_data.get('price'):
+                return RouteInfo(
+                    route_id=route_data.get('route_id', ''),
+                    from_location="",  # Будет заполнено из поискового запроса
+                    to_location="",    # Будет заполнено из поискового запроса
+                    departure_time=route_data.get('departure_time', ''),
+                    arrival_time=route_data.get('arrival_time', ''),
+                    price=route_data.get('price', ''),
+                    available_seats=route_data.get('available_seats', 0),
+                    bus_info=route_data.get('bus_info', ''),
+                    duration=route_data.get('duration', '')
+                )
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Ошибка парсинга маршрута: {e}")
+            return None
+    
+    def _parse_routes_simple(self, html: str) -> List[RouteInfo]:
+        """Упрощенный парсинг маршрутов"""
+        try:
+            routes = []
+            
+            # Ищем все время отправления
+            time_pattern = r'(\d{2}:\d{2})'
+            times = re.findall(time_pattern, html)
+            
+            # Ищем все цены
+            price_pattern = r'(\d+[.,]\d+)\s*руб'
+            prices = re.findall(price_pattern, html)
+            
+            # Создаем маршруты из найденных данных
+            for i, (time, price) in enumerate(zip(times, prices)):
+                route = RouteInfo(
+                    route_id=f"simple_route_{i}",
+                    from_location="",
+                    to_location="",
+                    departure_time=time,
+                    arrival_time="",
+                    price=price,
+                    available_seats=1,  # Предполагаем что места есть
+                    bus_info="",
+                    duration=""
+                )
+                routes.append(route)
+            
+            return routes
+            
+        except Exception as e:
+            logger.error(f"Ошибка упрощенного парсинга: {e}")
+            return []
+    
+    def book_ticket(self, booking_request: BookingRequest) -> Optional[UserBooking]:
+        """
+        Бронирование билета
+        
+        Args:
+            booking_request: Данные для бронирования
+            
+        Returns:
+            UserBooking: Данные о созданном бронировании или None
+        """
+        if not self.authenticated:
+            logger.warning("Пользователь не авторизован для бронирования")
+            return None
+            
+        try:
+            # URL для бронирования
+            booking_url = f"{self.base_url}/booking"
+            
+            # Подготавливаем данные для бронирования
+            booking_data = {
+                'route_id': booking_request.route_id,
+                'passenger_count': booking_request.passenger_count,
+                'passenger_name': booking_request.passenger_name,
+                'passenger_phone': booking_request.passenger_phone,
+                'departure_date': booking_request.departure_date
+            }
+            
+            # Добавляем CSRF токен
+            if self.csrf_token:
+                booking_data['_token'] = self.csrf_token
+            
+            logger.info(f"Создаю бронирование для маршрута {booking_request.route_id}")
+            
+            # Отправляем запрос бронирования
+            response = self.session.post(booking_url, data=booking_data)
+            response.raise_for_status()
+            
+            logger.info(f"Ответ на бронирование, статус: {response.status_code}")
+            
+            # Парсим результат бронирования
+            booking = self._parse_booking_result(response.text, booking_request)
+            
+            if booking:
+                logger.info(f"Бронирование создано: {booking.booking_id}")
+                return booking
+            else:
+                logger.warning("Не удалось создать бронирование")
+                return None
+            
+        except Exception as e:
+            logger.error(f"Ошибка бронирования: {e}")
+            return None
+    
+    def _parse_booking_result(self, html: str, request: BookingRequest) -> Optional[UserBooking]:
+        """Парсит результат бронирования"""
+        try:
+            # Ищем ID бронирования
+            booking_id_patterns = [
+                r'booking[_-]?id["\s:]+([^"\s<>,]+)',
+                r'номер[^:]*:\s*([^<\s]+)',
+                r'заказ[^:]*:\s*([^<\s]+)'
+            ]
+            
+            booking_id = None
+            for pattern in booking_id_patterns:
+                match = re.search(pattern, html, re.IGNORECASE)
+                if match:
+                    booking_id = match.group(1).strip()
+                    break
+            
+            # Если не нашли ID, генерируем временный
+            if not booking_id:
+                booking_id = f"booking_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            # Ищем номер билета
+            ticket_patterns = [
+                r'ticket[_-]?number["\s:]+([^"\s<>,]+)',
+                r'билет[^:]*:\s*([^<\s]+)'
+            ]
+            
+            ticket_number = ""
+            for pattern in ticket_patterns:
+                match = re.search(pattern, html, re.IGNORECASE)
+                if match:
+                    ticket_number = match.group(1).strip()
+                    break
+            
+            # Создаем объект бронирования
+            booking = UserBooking(
+                booking_id=booking_id,
+                route=f"{request.passenger_name}",  # Временно используем имя пассажира
+                date=request.departure_date,
+                departure_time="",  # Будет заполнено позже
+                ticket_number=ticket_number,
+                price="",
+                status="confirmed"
+            )
+            
+            return booking
+            
+        except Exception as e:
+            logger.error(f"Ошибка парсинга результата бронирования: {e}")
+            return None
     
     def logout(self) -> bool:
         """Выход из аккаунта"""
