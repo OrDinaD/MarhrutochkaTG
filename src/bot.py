@@ -136,8 +136,8 @@ def save_active_monitors():
     except Exception as e:
         logger.error(f"Не удалось сохранить мониторинги: {e}")
 
-# Загружаем существующие мониторинги при импорте модуля
-load_active_monitors()
+# НЕ загружаем мониторинги на уровне модуля - переносим в main()
+# load_active_monitors()
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors from telegram.ext and log them."""
@@ -2771,6 +2771,19 @@ def register_handlers(application):
 def main():
     """Главная функция запуска бота"""
     global application, admin_panel
+    
+    # Загружаем существующие мониторинги
+    try:
+        load_active_monitors()
+        if is_railway_logger:
+            logger.system_action("Мониторинги загружены", {"count": len(active_monitors)})
+        else:
+            logger.info(f"📊 Загружены мониторинги для {len(active_monitors)} пользователей")
+    except Exception as e:
+        if is_railway_logger:
+            logger.system_action("Ошибка загрузки мониторингов", {"error": str(e)}, level="error")
+        else:
+            logger.error(f"❌ Ошибка загрузки мониторингов: {e}")
     
     # Инициализируем систему обработки крашей в самом начале
     try:
