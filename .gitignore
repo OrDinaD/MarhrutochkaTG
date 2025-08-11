@@ -29,13 +29,14 @@ MANIFEST
 
 # Виртуальное окружение
 venv/
+.venv/
 env/
 ENV/
 env.bak/
 venv.bak/
 
-# Логи
-logs/
+# Данные и логи
+data/
 *.log
 
 # Временные файлы

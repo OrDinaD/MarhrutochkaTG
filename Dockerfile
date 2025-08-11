@@ -30,9 +30,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY . ./
 
 # Create necessary directories for logging and data storage
-RUN mkdir -p logs crash_logs user_sessions backups temp_recovery \
-    && touch logs/bot.log \
-    && touch recovery_log.json
+RUN mkdir -p data/logs data/crash_logs data/user_sessions \
+    && touch data/logs/bot.log
 
 # Create a non-privileged user for security
 RUN useradd --create-home --shell /bin/bash --user-group railway \
