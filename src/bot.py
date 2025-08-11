@@ -240,10 +240,15 @@ def get_date_keyboard():
     today = datetime.now()
     dates = []
     
+    # Русские сокращения дней недели
+    russian_weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    
     for i in range(7):  # Показываем 7 дней
         date = today + timedelta(days=i)
         date_str = date.strftime('%Y-%m-%d')
-        day_name = date.strftime('%A') if i < 3 else date.strftime('%d.%m')
+        
+        # Форматируем дату как dd.mm + день недели
+        day_name = f"{date.strftime('%d.%m')} {russian_weekdays[date.weekday()]}"
         
         if i == 0:
             label = f"🔵 Сегодня ({day_name})"
@@ -326,17 +331,13 @@ def get_main_menu_keyboard(user_id: int):
     keyboard = [
         [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
         [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
-        [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")]
+        [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")],
+        [InlineKeyboardButton("🌐 Открыть сайт", callback_data="open_website")]
     ]
 
     if bot_auth_manager.is_authenticated(user_id):
         # Пользователь вошел через улучшенную систему авторизации
-        keyboard.extend([
-            [InlineKeyboardButton("👤 Мой профиль", callback_data="profile_requests")],
-            [InlineKeyboardButton("🎫 Мои бронирования", callback_data="tickets_requests")],
-            [InlineKeyboardButton("🤖 Автобронирование", callback_data="auto_booking")],
-            [InlineKeyboardButton("🚪 Выйти из аккаунта", callback_data="logout_requests")]
-        ])
+        keyboard.append([InlineKeyboardButton("👤 Аккаунт (бета)", callback_data="account_beta")])
     else:
         # Пользователь не вошел
         keyboard.append([InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests")])
@@ -345,15 +346,13 @@ def get_main_menu_keyboard(user_id: int):
     if admin_panel and admin_panel.is_admin(user_id):
         keyboard.append([InlineKeyboardButton("⚙️ Функции администратора", callback_data="admin_panel")])
 
-    keyboard.append([InlineKeyboardButton("❓ Помощь", callback_data="help")])
     return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /start"""
     text = (
         "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
-        "🛣️ **Направления:** Минск ⇄ Островец\n"
-        "🌐 **Источник:** билет.маршруточка.бел\n\n"
+        "🛣️ **Направления:** Минск ⇄ Островец\n\n"
         "💡 **Выберите действие:**"
     )
     
@@ -371,8 +370,7 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = (
         "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
-        "🛣️ **Направления:** Минск ⇄ Островец\n"
-        "🌐 **Источник:** билет.маршруточка.бел\n\n"
+        "🛣️ **Направления:** Минск ⇄ Островец\n\n"
         "💡 **Выберите действие:**"
     )
 
@@ -1163,9 +1161,9 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
             f"{format_monitor_config(config)}\n\n"
             "✅ Я буду проверять наличие мест каждые 5 минут\n"
             "📱 Уведомления придут как только появятся подходящие рейсы\n\n"
-            "💡 Для управления мониторингом используйте /monitoring",
+            "💡 Используйте главное меню для управления:",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📊 Управление мониторингом", callback_data="manage_monitoring")
+                InlineKeyboardButton("� Главное меню", callback_data="back_to_main")
             ]]),
             parse_mode='Markdown'
         )
@@ -1387,7 +1385,7 @@ async def send_monitoring_notification(
         # Создаем кнопки с веб-приложениями
         keyboard_buttons = [
             [InlineKeyboardButton("🛑 Остановить мониторинг", callback_data="stop_monitoring")],
-            [InlineKeyboardButton("📊 Управление", callback_data="manage_monitoring")]
+            [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")]
         ]
         
         # Добавляем кнопку веб-приложения для быстрого бронирования
@@ -1905,8 +1903,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         text = (
             "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
-            "🛣️ **Направления:** Минск ⇄ Островец\n"
-            "🌐 **Источник:** билет.маршруточка.бел\n\n"
+            "🛣️ **Направления:** Минск ⇄ Островец\n\n"
             "💡 **Выберите действие:**"
         )
         
@@ -1936,29 +1933,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("bookings_"):
         # Обработчик фильтрации бронирований (bookings_upcoming, bookings_completed, bookings_cancelled)
         await handle_bookings_filter(update, context)
-    
-    elif data == "help":
-        await query.edit_message_text(
-            "❓ **Справка по использованию**\n\n"
-            "🔍 **Поиск рейсов:**\n"
-            "• Отправьте дату в формате YYYY-MM-DD\n"
-            "• Например: `2025-01-15`\n\n"
-            "🔔 **Мониторинг:**\n"
-            "• Выберите дату, направление и время\n"
-            "• Бот проверяет каждые 5 минут\n"
-            "• Уведомления при появлении мест\n\n"
-            "📊 **Команды:**\n"
-            "• `/start` - главное меню\n"
-            "• `/monitoring` - управление мониторингом\n"
-            "• `/help` - эта справка\n\n"
-            "🚌 **Направления:**\n"
-            "• Минск → Островец\n"
-            "• Островец → Минск",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
-            ]]),
-            parse_mode='Markdown'
-        )
     
     elif data == "my_monitors":
         if user_id in active_monitors:
@@ -2050,8 +2024,65 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
     
+    elif data == "open_website":
+        # Обработчик открытия сайта
+        await query.edit_message_text(
+            "🌐 **Официальный сайт маршруточки**\n\n"
+            "Вы можете посетить официальный сайт для бронирования билетов:\n\n"
+            "🔗 **[билет.маршруточка.бел](https://билет.маршруточка.бел/)**\n\n"
+            "💡 Нажмите на ссылку выше или используйте веб-приложение ниже:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Открыть веб-приложение", web_app=WebAppInfo(url="https://билет.маршруточка.бел/"))],
+                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+            ]),
+            parse_mode='Markdown'
+        )
+    
+    elif data == "account_beta":
+        # Обработчик меню аккаунта (бета)
+        await handle_account_beta_menu(update, context)
+    
     else:
         await query.answer("❓ Неизвестная команда")
+
+# ==================== ACCOUNT BETA FUNCTIONS ====================
+
+async def handle_account_beta_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик меню аккаунта (бета версия)"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if not bot_auth_manager.is_authenticated(user_id):
+        await query.edit_message_text(
+            "🔒 **Аккаунт недоступен**\n\n"
+            "Для доступа к функциям аккаунта необходимо войти в систему.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests")],
+                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+            ]),
+            parse_mode='Markdown'
+        )
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("👤 Мой профиль", callback_data="profile_requests")],
+        [InlineKeyboardButton("🎫 Мои бронирования", callback_data="tickets_requests")],
+        [InlineKeyboardButton("🤖 Автобронирование", callback_data="auto_booking")],
+        [InlineKeyboardButton("🚪 Выйти из аккаунта", callback_data="logout_requests")],
+        [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
+    ]
+    
+    await query.edit_message_text(
+        "👤 **Аккаунт (бета)**\n\n"
+        "🔐 **Вы авторизованы в системе**\n\n"
+        "💡 **Доступные функции:**\n"
+        "• Просмотр профиля\n"
+        "• Управление бронированиями\n"
+        "• Настройка автобронирования\n\n"
+        "⚡ **Выберите действие:**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
 
 # ==================== AUTO BOOKING FUNCTIONS ====================
 
