@@ -49,17 +49,32 @@ except ImportError:
 # Настройка логирования - используем Railway enhanced logger если доступен
 if railway_logger:
     logger = railway_logger
-    is_railway_logger = True
 else:
     logger = setup_logging(logging.INFO)
-    is_railway_logger = False
 
-# Определяем, используем ли мы Railway logger
-try:
-    from .railway_logger import RailwayLogger
-    is_railway_logger = is_railway_logger or isinstance(logger, RailwayLogger)
-except ImportError:
-    pass
+# Определяем, является ли logger Railway logger-ом по наличию специальных методов
+is_railway_logger = hasattr(logger, 'system_action') and hasattr(logger, 'bot_action')
+
+def safe_log_system(message: str, data: dict = None, level: str = "info"):
+    """Безопасное логирование системных действий"""
+    if hasattr(logger, 'system_action'):
+        logger.system_action(message, data or {}, level=level)
+    else:
+        getattr(logger, level, logger.info)(f"⚙️ {message}")
+
+def safe_log_bot(message: str, data: dict = None, level: str = "info"):
+    """Безопасное логирование действий бота"""
+    if hasattr(logger, 'bot_action'):
+        logger.bot_action(message, data or {}, level=level)
+    else:
+        getattr(logger, level, logger.info)(f"🤖 {message}")
+
+def safe_log_admin(message: str, data: dict = None, level: str = "info"):
+    """Безопасное логирование действий админа"""
+    if hasattr(logger, 'admin_action'):
+        logger.admin_action(message, data or {}, level=level)
+    else:
+        getattr(logger, level, logger.info)(f"👤 {message}")
 
 # Игнорируем предупреждения от python-telegram-bot о per_message
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -141,20 +156,17 @@ def save_active_monitors():
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors from telegram.ext and log them."""
-    if is_railway_logger:
-        # Получаем дополнительную информацию об update
-        update_info = {}
-        if hasattr(update, 'effective_user') and update.effective_user:
-            update_info['user_id'] = update.effective_user.id
-        if hasattr(update, 'effective_chat') and update.effective_chat:
-            update_info['chat_id'] = update.effective_chat.id
-        if hasattr(update, 'effective_message') and update.effective_message:
-            update_info['message_id'] = update.effective_message.message_id
-            
-        logger.bot_action("Ошибка при обработке update", update_info, level="error")
-        logger.error("Exception details:", exc_info=context.error)
-    else:
-        logger.error("Exception while handling an update:", exc_info=context.error)
+    # Получаем дополнительную информацию об update
+    update_info = {}
+    if hasattr(update, 'effective_user') and update.effective_user:
+        update_info['user_id'] = update.effective_user.id
+    if hasattr(update, 'effective_chat') and update.effective_chat:
+        update_info['chat_id'] = update.effective_chat.id
+    if hasattr(update, 'effective_message') and update.effective_message:
+        update_info['message_id'] = update.effective_message.message_id
+        
+    safe_log_bot("Ошибка при обработке update", update_info, level="error")
+    logger.error("Exception details:", exc_info=context.error)
 
 async def init_parser():
     """Инициализация парсера"""
@@ -633,14 +645,11 @@ async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=get_main_menu_keyboard(user_id),
                 parse_mode='Markdown'
             )
-            if is_railway_logger:
-                logger.auth_action(f"Пользователь {user_id} успешно авторизован", {
-                    "user_id": user_id,
-                    "auth_method": "requests_auth",
-                    "status": "success"
-                })
-            else:
-                logger.info(f"Пользователь {user_id} авторизован через новую систему")
+            safe_log_system(f"Пользователь {user_id} успешно авторизован", {
+                "user_id": user_id,
+                "auth_method": "requests_auth",
+                "status": "success"
+            })
         else:
             await progress_message.edit_text(
                 "❌ **ОШИБКА ВХОДА**\n\n"
@@ -652,26 +661,20 @@ async def handle_password_requests(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=get_main_menu_keyboard(user_id),
                 parse_mode='Markdown'
             )
-            if is_railway_logger:
-                logger.auth_action(f"Неуспешная авторизация пользователя {user_id}", {
-                    "user_id": user_id,
-                    "auth_method": "requests_auth",
-                    "status": "failed",
-                    "reason": "invalid_credentials"
-                })
-            else:
-                logger.warning(f"Неуспешная авторизация пользователя {user_id}")
-    
-    except Exception as e:
-        if is_railway_logger:
-            logger.auth_action(f"Ошибка авторизации пользователя {user_id}", {
+            safe_log_system(f"Неуспешная авторизация пользователя {user_id}", {
                 "user_id": user_id,
                 "auth_method": "requests_auth",
-                "status": "error",
-                "error": str(e)
-            }, level="error")
-        else:
-            logger.error(f"Ошибка авторизации пользователя {user_id}: {e}")
+                "status": "failed",
+                "reason": "invalid_credentials"
+            })
+    
+    except Exception as e:
+        safe_log_system(f"Ошибка авторизации пользователя {user_id}", {
+            "user_id": user_id,
+            "auth_method": "requests_auth",
+            "status": "error",
+            "error": str(e)
+        }, level="error")
         await progress_message.edit_text(
             "❌ **СИСТЕМНАЯ ОШИБКА**\n\n"
             "Произошла непредвиденная ошибка при входе.\n"
@@ -2775,36 +2778,21 @@ def main():
     # Загружаем существующие мониторинги
     try:
         load_active_monitors()
-        if is_railway_logger:
-            logger.system_action("Мониторинги загружены", {"count": len(active_monitors)})
-        else:
-            logger.info(f"📊 Загружены мониторинги для {len(active_monitors)} пользователей")
+        safe_log_system("Мониторинги загружены", {"count": len(active_monitors)})
     except Exception as e:
-        if is_railway_logger:
-            logger.system_action("Ошибка загрузки мониторингов", {"error": str(e)}, level="error")
-        else:
-            logger.error(f"❌ Ошибка загрузки мониторингов: {e}")
+        safe_log_system("Ошибка загрузки мониторингов", {"error": str(e)}, level="error")
     
     # Инициализируем систему обработки крашей в самом начале
     try:
         crash_handler.setup_crash_handling()
-        if is_railway_logger:
-            logger.system_action("Система обработки крашей активирована", {"status": "enabled"})
-        else:
-            logger.info("🛡️ Система обработки крашей активирована")
+        safe_log_system("Система обработки крашей активирована", {"status": "enabled"})
     except Exception as e:
-        if is_railway_logger:
-            logger.system_action("Ошибка активации crash handler", {"error": str(e)}, level="error")
-        else:
-            logger.error(f"❌ Ошибка активации crash handler: {e}")
+        safe_log_system("Ошибка активации crash handler", {"error": str(e)}, level="error")
     
     # Получаем токен из переменных окружения
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
-        if is_railway_logger:
-            logger.bot_action("Токен бота не найден", {"error": "TELEGRAM_BOT_TOKEN missing"}, level="error")
-        else:
-            logger.error("❌ TELEGRAM_BOT_TOKEN не найден в переменных окружения!")
+        safe_log_bot("Токен бота не найден", {"error": "TELEGRAM_BOT_TOKEN missing"}, level="error")
         return
     
     # Инициализируем админ-панель
@@ -2812,33 +2800,18 @@ def main():
     if admin_telegram_id:
         try:
             admin_panel = AdminPanel(int(admin_telegram_id))
-            if is_railway_logger:
-                logger.admin_action("Админ-панель активирована", {"admin_id": admin_telegram_id})
-            else:
-                logger.info(f"👤 Админ-панель активирована для пользователя {admin_telegram_id}")
+            safe_log_admin("Админ-панель активирована", {"admin_id": admin_telegram_id})
         except ValueError:
-            if is_railway_logger:
-                logger.admin_action("Неверный ADMIN_TELEGRAM_ID", {"error": "must_be_number"}, level="error")
-            else:
-                logger.error("❌ ADMIN_TELEGRAM_ID должен быть числом!")
+            safe_log_admin("Неверный ADMIN_TELEGRAM_ID", {"error": "must_be_number"}, level="error")
     else:
-        if is_railway_logger:
-            logger.admin_action("ADMIN_TELEGRAM_ID не установлен", {"warning": "admin_panel_disabled"}, level="warning")
-        else:
-            logger.warning("⚠️ ADMIN_TELEGRAM_ID не установлен - админ-панель недоступна")
+        safe_log_admin("ADMIN_TELEGRAM_ID не установлен", {"warning": "admin_panel_disabled"}, level="warning")
     
-    if is_railway_logger:
-        logger.bot_action("Запуск бота MarhrutochkaTG", {
-            "python_version": sys.version.split()[0],
-            "working_directory": os.getcwd(),
-            "process_id": os.getpid(),
-            "environment": "railway" if os.getenv('RAILWAY_SERVICE_NAME') else "local"
-        })
-    else:
-        logger.info("🚀 Запуск бота MarhrutochkaTG...")
-        logger.info(f"Версия Python: {sys.version}")
-        logger.info(f"Рабочая директория: {os.getcwd()}")
-        logger.info(f"ID процесса: {os.getpid()}")
+    safe_log_bot("Запуск бота MarhrutochkaTG", {
+        "python_version": sys.version.split()[0],
+        "working_directory": os.getcwd(),
+        "process_id": os.getpid(),
+        "environment": "railway" if os.getenv('RAILWAY_SERVICE_NAME') else "local"
+    })
     
     # Создаем приложение
     application = Application.builder().token(token).build()
@@ -2855,14 +2828,10 @@ def main():
         load_active_monitors()
         load_user_sessions()
         
-        if is_railway_logger:
-            logger.bot_action("Данные восстановлены", {
-                "monitors_count": len(active_monitors),
-                "sessions_count": len(user_sessions)
-            })
-        else:
-            logger.info(f"📊 Загружены мониторинги для {len(active_monitors)} пользователей")
-            logger.info(f"🔓 Загружены сессии для {len(user_sessions)} пользователей")
+        safe_log_bot("Данные восстановлены", {
+            "monitors_count": len(active_monitors),
+            "sessions_count": len(user_sessions)
+        })
         
         # Восстанавливаем активные мониторинги
         for user_id, config in active_monitors.items():
@@ -2874,36 +2843,21 @@ def main():
                     name=f"monitor_{user_id}",
                     data=user_id
                 )
-                if is_railway_logger:
-                    logger.bot_action(f"Мониторинг восстановлен", {"user_id": user_id})
-                else:
-                    logger.info(f"🔄 Восстановлен мониторинг для пользователя {user_id}")
+                safe_log_bot("Мониторинг восстановлен", {"user_id": user_id})
             except Exception as e:
-                if is_railway_logger:
-                    logger.bot_action(f"Ошибка восстановления мониторинга", {
-                        "user_id": user_id,
-                        "error": str(e)
-                    }, level="error")
-                else:
-                    logger.error(f"❌ Ошибка восстановления мониторинга для {user_id}: {e}")
+                safe_log_bot("Ошибка восстановления мониторинга", {
+                    "user_id": user_id,
+                    "error": str(e)
+                }, level="error")
         
         # Запускаем бота (планировщик запустится автоматически)
-        if is_railway_logger:
-            logger.bot_action("Бот запущен успешно", {"status": "running"})
-        else:
-            logger.info("🤖 Бот запущен успешно!")
+        safe_log_bot("Бот запущен успешно", {"status": "running"})
         application.run_polling(drop_pending_updates=True)
         
     except Conflict:
-        if is_railway_logger:
-            logger.bot_action("Конфликт: бот уже запущен", {"error": "conflict"}, level="error")
-        else:
-            logger.error("❌ Конфликт: бот уже запущен в другом месте!")
+        safe_log_bot("Конфликт: бот уже запущен", {"error": "conflict"}, level="error")
     except Exception as e:
-        if is_railway_logger:
-            logger.bot_action("Критическая ошибка", {"error": str(e)}, level="error")
-        else:
-            logger.error(f"❌ Критическая ошибка: {e}", exc_info=True)
+        safe_log_bot("Критическая ошибка", {"error": str(e)}, level="error")
         
         # Обрабатываем краш через нашу систему
         try:
@@ -2911,23 +2865,17 @@ def main():
                 crash_analysis = await diagnostic_system.analyze_crash_report_from_exception(e)
                 if crash_analysis:
                     recovery_result = await auto_recovery.attempt_auto_recovery(crash_analysis)
-                    if is_railway_logger:
-                        logger.system_action("Автоматическое восстановление завершено", {
-                            "success": recovery_result.get("success", False),
-                            "actions_count": len(recovery_result.get("actions_taken", [])),
-                            "crash_id": crash_analysis.get("crash_id")
-                        })
-                    else:
-                        logger.info(f"🔧 Автоматическое восстановление: {'успешно' if recovery_result.get('success') else 'неуспешно'}")
+                    safe_log_system("Автоматическое восстановление завершено", {
+                        "success": recovery_result.get("success", False),
+                        "actions_count": len(recovery_result.get("actions_taken", [])),
+                        "crash_id": crash_analysis.get("crash_id")
+                    })
             
             # Запускаем асинхронную обработку краша
             asyncio.run(handle_crash())
             
         except Exception as recovery_error:
-            if is_railway_logger:
-                logger.system_action("Ошибка автоматического восстановления", {"error": str(recovery_error)}, level="error")
-            else:
-                logger.error(f"❌ Ошибка автоматического восстановления: {recovery_error}")
+            safe_log_system("Ошибка автоматического восстановления", {"error": str(recovery_error)}, level="error")
         
         traceback.print_exc()
     finally:
