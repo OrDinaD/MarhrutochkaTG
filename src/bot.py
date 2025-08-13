@@ -635,14 +635,33 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         selected_date = data.replace("date_", "")
         user_data_store[user_id]['date'] = selected_date
         
-        await query.edit_message_text(
-            f"✅ **Выбрана дата:** {selected_date}\n\n"
-            "🛣️ **Шаг 2:** Выберите направление:",
-            reply_markup=get_direction_keyboard(),
-            parse_mode='Markdown'
-        )
-        
-        return CHOOSE_DIRECTION
+        # Проверяем, есть ли уже выбранный маршрут (поиск по городам)
+        user_data = user_data_store.get(user_id, {})
+        if user_data.get('from_city') and user_data.get('to_city'):
+            # Маршрут уже выбран через города - сразу запускаем поиск
+            from_city = user_data['from_city']
+            to_city = user_data['to_city']
+            
+            await query.edit_message_text(
+                f"🔍 **Поиск маршрутов...**\n\n"
+                f"📍 **Маршрут:** {from_city} → {to_city}\n"
+                f"📅 **Дата:** {selected_date}",
+                parse_mode='Markdown'
+            )
+            
+            # Запускаем поиск маршрутов
+            await perform_route_search(query, user_id, from_city, to_city, selected_date)
+            return ConversationHandler.END
+        else:
+            # Обычный поток - выбираем направление
+            await query.edit_message_text(
+                f"✅ **Выбрана дата:** {selected_date}\n\n"
+                "🛣️ **Шаг 2:** Выберите направление:",
+                reply_markup=get_direction_keyboard(),
+                parse_mode='Markdown'
+            )
+            
+            return CHOOSE_DIRECTION
     
     elif data == "custom_date":
         await query.edit_message_text(
@@ -1737,6 +1756,110 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
         user_data_store[user_id].pop('search_direction', None)
     
     return ConversationHandler.END
+
+async def perform_route_search(query, user_id: int, from_city: str, to_city: str, date: str):
+    """Выполняет поиск маршрутов для выбранных городов и даты"""
+    try:
+        await init_parser()
+        
+        # Определяем направление для парсера
+        direction_map = {
+            ("Минск", "Островец"): "minsk_to_ostrovets",
+            ("Островец", "Минск"): "ostrovets_to_minsk",
+            ("Минск", "Сморгонь"): "minsk_to_smorgon",
+            ("Сморгонь", "Минск"): "smorgon_to_minsk",
+            ("Островец", "Сморгонь"): "ostrovets_to_smorgon",
+            ("Сморгонь", "Островец"): "smorgon_to_ostrovets"
+        }
+        
+        routes_key = direction_map.get((from_city, to_city))
+        
+        if routes_key:
+            # Получаем конкретные маршруты
+            routes_data = await parser.get_all_routes(date)
+            
+            # Создаем упрощенную структуру для форматирования
+            simple_routes_data = {
+                routes_key: routes_data.get(routes_key, []),
+                'success': routes_data.get('success', False)
+            }
+            
+            # Форматируем сообщение для конкретного направления
+            if simple_routes_data[routes_key]:
+                message_parts = [f"📅 **Рейсы {from_city} → {to_city} на {date}**", ""]
+                
+                for i, route in enumerate(simple_routes_data[routes_key][:8], 1):
+                    seats = route.get('available_seats', 0)
+                    
+                    time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
+                    duration = route.get('duration', 'н/д')
+                    
+                    message_parts.append(f"{i}. {time_info} ({duration})")
+                    
+                    # Проверяем, нужно ли показывать места
+                    is_smorgon_to_ostrovets = (from_city == "Сморгонь" and to_city == "Островец")
+                    
+                    if not is_smorgon_to_ostrovets and seats is not None:
+                        seat_emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
+                        message_parts.append(f"   {seat_emoji} {seats} мест")
+                    elif is_smorgon_to_ostrovets:
+                        message_parts.append(f"   ✅ Всех берут")
+                    
+                    # Добавляем информацию о промежуточных городах
+                    if route.get('via_smorgon'):
+                        message_parts.append(f"   🛣️ *через Сморгонь*")
+                    elif route.get('via_oshmiany'):
+                        message_parts.append(f"   🛣️ *через Ошмяны*")
+                    
+                    message_parts.append("")  # Пустая строка между маршрутами
+                
+                message = "\n".join(message_parts)
+                
+                # Добавляем информацию о промежуточных маршрутах для Сморгони
+                if from_city == "Сморгонь" or to_city == "Сморгонь":
+                    message += "\n💡 *Маршруты через Сморгонь могут включать пересадки*"
+                
+            else:
+                message = f"❌ **Рейсы {from_city} → {to_city} на {date} не найдены**\n\n"
+                message += "Попробуйте:\n"
+                message += "• Выбрать другую дату\n"
+                message += "• Проверить доступность маршрута\n"
+                
+                if from_city == "Сморгонь" or to_city == "Сморгонь":
+                    message += "• Поискать транзитные рейсы через Минск"
+        else:
+            message = f"❌ **Направление {from_city} → {to_city} не поддерживается**"
+        
+        # Создаем клавиатуру для продолжения
+        keyboard = [
+            [InlineKeyboardButton("🔍 Новый поиск", callback_data="search_routes")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+        ]
+        
+        await query.edit_message_text(
+            message,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка поиска маршрутов {from_city} → {to_city}: {e}")
+        await query.edit_message_text(
+            f"❌ **Ошибка поиска рейсов {from_city} → {to_city}**\n\n"
+            "Попробуйте позже или выберите другое направление.",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Попробовать снова", callback_data="search_by_cities")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+            ])
+        )
+    
+    # Очищаем данные пользователя
+    if user_id in user_data_store:
+        user_data_store[user_id].pop('from_city', None)
+        user_data_store[user_id].pop('to_city', None)
+        user_data_store[user_id].pop('date', None)
+        user_data_store[user_id].pop('route_selected', None)
 
 # ==================== COMMAND HANDLERS ====================
 
