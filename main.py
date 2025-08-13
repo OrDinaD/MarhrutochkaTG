@@ -56,7 +56,6 @@ def main():
         bot_main()
     except ImportError as e:
         print(f"❌ Ошибка импорта: {e}")
-        sys.exit(1)
         print("💡 Убедитесь, что все файлы находятся в папке src/")
         sys.exit(1)
     except KeyboardInterrupt:
