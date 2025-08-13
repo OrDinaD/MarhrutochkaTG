@@ -117,7 +117,7 @@ class BotAuthManager:
             logger.error(f"Ошибка получения бронирований пользователя {user_id}: {e}")
             return []
     
-    def search_routes(self, user_id: int, from_location: str, to_location: str, date: str):
+    async def search_routes(self, user_id: int, from_location: str, to_location: str, date: str):
         """Поиск маршрутов для пользователя"""
         if not self.is_authenticated(user_id):
             logger.warning(f"Пользователь {user_id} не авторизован для поиска маршрутов")
@@ -125,6 +125,7 @@ class BotAuthManager:
             
         try:
             auth = self.sessions[user_id]
+            # Вызываем синхронный метод
             routes = auth.search_routes(from_location, to_location, date)
             logger.info(f"Найдено {len(routes)} маршрутов для пользователя {user_id}")
             return routes
@@ -133,7 +134,7 @@ class BotAuthManager:
             logger.error(f"Ошибка поиска маршрутов для пользователя {user_id}: {e}")
             return []
     
-    def book_ticket(self, user_id: int, booking_request) -> Optional:
+    async def book_ticket(self, user_id: int, booking_request) -> Optional:
         """Бронирование билета для пользователя"""
         if not self.is_authenticated(user_id):
             logger.warning(f"Пользователь {user_id} не авторизован для бронирования")
@@ -141,6 +142,7 @@ class BotAuthManager:
             
         try:
             auth = self.sessions[user_id]
+            # Вызываем синхронный метод
             booking = auth.book_ticket(booking_request)
             
             if booking:
