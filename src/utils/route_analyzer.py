@@ -45,7 +45,7 @@ class RouteAnalyzer:
         },
         "Минск-Сморгонь-Островец": {
             "path": ["Минск", "Сморгонь", "Островец"],
-            "duration_minutes": 145,  # 2ч 25 мин
+            "duration_minutes": 190,  # ~3ч 10мин (2ч 5мин + 1ч 5мин)
             "description": "через Сморгонь"
         },
         "Островец-Ошмяны-Минск": {
@@ -55,27 +55,27 @@ class RouteAnalyzer:
         },
         "Островец-Сморгонь-Минск": {
             "path": ["Островец", "Сморгонь", "Минск"],
-            "duration_minutes": 145,
+            "duration_minutes": 190,  # ~3ч 10мин
             "description": "через Сморгонь"
         }
     }
     
     # Примерное время в пути между городами (в минутах)
     TRAVEL_TIMES = {
-        ("Минск", "Сморгонь"): 75,      # ~1ч 15мин
-        ("Сморгонь", "Островец"): 70,    # ~1ч 10мин
-        ("Минск", "Ошмяны"): 85,        # ~1ч 25мин
-        ("Ошмяны", "Островец"): 45,     # ~45мин
+        ("Минск", "Сморгонь"): 125,     # ~2ч 5мин (от 1ч 55мин до 2ч 25мин - берем среднее)
+        ("Сморгонь", "Островец"): 65,   # ~1ч 5мин (корректировка)
+        ("Минск", "Ошмяны"): 85,       # ~1ч 25мин
+        ("Ошмяны", "Островец"): 45,    # ~45мин
     }
     
-    # Остановки в Сморгони (из изученного сайта)
+    # Остановки в Сморгони (актуальная информация)
     SMORGON_STOPS = [
-        "Автобусная ост. Инженерная",
-        "Автобусная ост. Гостиница", 
-        "Автобусная ост. Колосок",
-        "Автобусная ост. Вещевой рынок",
-        "Автобусная ост. Литейный завод",
-        "Авт. ост. \"Площадь 17 сентября\" (улица Советская,125)"
+        "Славянка",
+        "Электросети (ул. Ленина, 73)",
+        "Школа №2 (ул. Ленина, 31)",
+        "Ресторан \"Вилия\" (ул. Советская, 2)",
+        "Школа №1 (ул. Советская, 26)",
+        "Микрорайон Западный (ул. Советская, 82)"
     ]
     
     @classmethod
@@ -195,6 +195,13 @@ class RouteAnalyzer:
             "⚠️ **Важная информация о Сморгони:**\n\n"
             "🚏 **Остановки в Сморгони:**\n"
             f"{stops_text}\n\n"
+            "🕐 **Время в пути от Минска:** от 1ч 55мин до 2ч 25мин\n\n"
+            "📍 **Основная остановка:** \"Школа №1\" (ул. Советская, 26)\n\n"
+            "⏰ **Примерное расписание прибытия в Сморгонь:**\n"
+            "• Рейс 05:00 → прибытие ~06:55-07:25\n"
+            "• Рейс 08:00 → прибытие ~09:55-10:25\n"
+            "• Рейс 13:00 → прибытие ~14:55-15:25\n"
+            "• Рейс 18:00 → прибытие ~19:55-20:25\n\n"
             "❗ **Внимание:** Маршрутка может останавливаться не на всех остановках в Сморгони. "
             "Рекомендуется уточнить у водителя конкретную остановку при посадке.\n\n"
             "📞 **Контакты для уточнения:** +375293541000"
@@ -270,12 +277,19 @@ def format_route_with_intermediate_cities(route_detail: RouteDetail) -> str:
         str: Отформатированная строка с информацией о маршруте
     """
     # Базовая информация
-    seats_emoji = "🚫" if route_detail.available_seats == 0 else "🔥" if route_detail.available_seats <= 3 else "✅"
-    
     route_info = [
-        f"🕐 **{route_detail.departure_time} → {route_detail.arrival_time}** ({route_detail.duration})",
-        f"{seats_emoji} **{route_detail.available_seats} мест** • {route_detail.price}",
+        f"� **{route_detail.departure_time} → {route_detail.arrival_time}** ({route_detail.duration})"
     ]
+    
+    # Проверяем, нужно ли показывать места (для Сморгонь-Островец не показываем)
+    is_smorgon_to_ostrovets = (route_detail.from_location == "Сморгонь" and 
+                              route_detail.to_location == "Островец")
+    
+    if not is_smorgon_to_ostrovets and route_detail.available_seats is not None:
+        seats_emoji = "🚫" if route_detail.available_seats == 0 else "🔥" if route_detail.available_seats <= 3 else "✅"
+        route_info.append(f"{seats_emoji} **{route_detail.available_seats} мест** • {route_detail.price}")
+    elif route_detail.price:
+        route_info.append(f"💰 **{route_detail.price}**")
     
     # Добавляем информацию о пути маршрута
     if route_detail.route_path:
@@ -299,5 +313,9 @@ def format_route_with_intermediate_cities(route_detail: RouteDetail) -> str:
     # Добавляем перевозчика
     if route_detail.carrier:
         route_info.append(f"🚌 **{route_detail.carrier}**")
+    
+    # Специальное примечание для маршрутов от Сморгони
+    if is_smorgon_to_ostrovets:
+        route_info.append("✅ **Всех берут** (места не ограничены)")
     
     return "\n".join(route_info)

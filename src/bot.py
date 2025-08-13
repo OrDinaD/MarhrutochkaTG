@@ -1598,7 +1598,107 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
     date = query.data.replace('date_', '')
     
     user_data = user_data_store.get(user_id, {})
-    direction = user_data.get('search_direction', 'both')
+    
+    # Проверяем, выбран ли маршрут по отдельным городам
+    if user_data.get('route_selected'):
+        from_city = user_data.get('from_city')
+        to_city = user_data.get('to_city')
+        
+        await query.edit_message_text(
+            f"🔍 **Ищу рейсы {from_city} → {to_city} на {date}...**",
+            parse_mode='Markdown'
+        )
+        
+        try:
+            await init_parser()
+            
+            # Определяем направление для парсера
+            direction_map = {
+                ("Минск", "Островец"): "minsk_to_ostrovets",
+                ("Островец", "Минск"): "ostrovets_to_minsk", 
+                ("Минск", "Сморгонь"): "minsk_to_smorgon",
+                ("Сморгонь", "Минск"): "smorgon_to_minsk",
+                ("Островец", "Сморгонь"): "ostrovets_to_smorgon",
+                ("Сморгонь", "Островец"): "smorgon_to_ostrovets"
+            }
+            
+            routes_key = direction_map.get((from_city, to_city))
+            
+            if routes_key:
+                # Получаем конкретные маршруты
+                routes_data = await parser.get_all_routes(date)
+                
+                # Создаем упрощенную структуру для форматирования
+                simple_routes_data = {
+                    routes_key: routes_data.get(routes_key, []),
+                    'success': routes_data.get('success', False)
+                }
+                
+                # Форматируем сообщение для конкретного направления
+                if simple_routes_data[routes_key]:
+                    message_parts = [f"📅 **Рейсы {from_city} → {to_city} на {date}**", ""]
+                    
+                    for i, route in enumerate(simple_routes_data[routes_key][:8], 1):
+                        seats = route.get('available_seats', 0)
+                        
+                        time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
+                        duration = route.get('duration', 'н/д')
+                        
+                        message_parts.append(f"{i}. {time_info} ({duration})")
+                        
+                        # Проверяем, нужно ли показывать места
+                        is_smorgon_to_ostrovets = (from_city == "Сморгонь" and to_city == "Островец")
+                        
+                        if not is_smorgon_to_ostrovets and seats is not None:
+                            seat_emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
+                            message_parts.append(f"   {seat_emoji} {seats} мест")
+                        elif is_smorgon_to_ostrovets:
+                            message_parts.append(f"   ✅ Всех берут")
+                        
+                        # Добавляем информацию о промежуточных городах
+                        if route.get('via_smorgon'):
+                            message_parts.append(f"   🛣️ *через Сморгонь*")
+                        elif route.get('via_oshmiany'):
+                            message_parts.append(f"   🛣️ *через Ошмяны*")
+                    
+                    message_parts.append(f"\n📊 **Всего рейсов:** {len(simple_routes_data[routes_key])}")
+                    message = "\n".join(message_parts)
+                else:
+                    message = f"❌ **Рейсы {from_city} → {to_city} на {date} не найдены**"
+                
+                # Очищаем данные пользователя
+                user_data_store[user_id] = {}
+                
+            else:
+                message = "❌ **Неподдерживаемое направление**"
+            
+            # Создаем клавиатуру
+            keyboard_buttons = [
+                [InlineKeyboardButton("🔍 Новый поиск", callback_data="search_routes")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+            ]
+            
+            await query.edit_message_text(
+                message,
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard_buttons)
+            )
+            
+        except Exception as e:
+            logger.error(f"Ошибка поиска рейсов: {e}")
+            await query.edit_message_text(
+                "❌ **Ошибка поиска рейсов**\n\nПопробуйте позже.",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔍 Повторить поиск", callback_data="search_routes")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+                ])
+            )
+        
+        return
+    
+    # Старая логика для готовых направлений
+    direction = user_data.get('search_direction', 'all')
     
     await query.edit_message_text(
         f"🔍 **Ищу рейсы на {date}...**",
@@ -1888,6 +1988,128 @@ async def monitoring_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало процесса поиска рейсов с выбором направления"""
+    # Создаем клавиатуру для выбора типа поиска
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎯 Выбрать города по отдельности", callback_data="search_by_cities")],
+        [InlineKeyboardButton("🛣️ Выбрать готовые направления", callback_data="search_by_directions")],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+    ])
+    
+    if update.message:
+        await update.message.reply_text(
+            "🔍 **Как вы хотите искать маршрут?**\n\n"
+            "🎯 **По отдельности** - сначала выберите откуда, потом куда\n"
+            "🛣️ **Готовые направления** - выберите из списка популярных маршрутов",
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+    else:
+        query = update.callback_query
+        await query.edit_message_text(
+            "🔍 **Как вы хотите искать маршрут?**\n\n"
+            "🎯 **По отдельности** - сначала выберите откуда, потом куда\n"
+            "🛣️ **Готовые направления** - выберите из списка популярных маршрутов",
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+
+async def handle_search_by_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начало поиска с выбором городов по отдельности"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Создаем клавиатуру для выбора города отправления
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏙️ Минск", callback_data="from_city_Минск")],
+        [InlineKeyboardButton("🏘️ Островец", callback_data="from_city_Островец")],
+        [InlineKeyboardButton("🏙️ Сморгонь", callback_data="from_city_Сморгонь")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="search_routes")]
+    ])
+    
+    await query.edit_message_text(
+        "📍 **Выберите город отправления:**",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+
+async def handle_from_city_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка выбора города отправления"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    from_city = query.data.replace('from_city_', '')
+    
+    # Сохраняем выбранный город отправления
+    if user_id not in user_data_store:
+        user_data_store[user_id] = {}
+    user_data_store[user_id]['from_city'] = from_city
+    
+    # Создаем клавиатуру для выбора города назначения (исключаем выбранный город)
+    keyboard_buttons = []
+    
+    cities = ["Минск", "Островец", "Сморгонь"]
+    city_emojis = {"Минск": "🏙️", "Островец": "🏘️", "Сморгонь": "🏙️"}
+    
+    for city in cities:
+        if city != from_city:
+            keyboard_buttons.append([InlineKeyboardButton(
+                f"{city_emojis[city]} {city}", 
+                callback_data=f"to_city_{city}"
+            )])
+    
+    keyboard_buttons.append([InlineKeyboardButton("🔙 Назад", callback_data="search_by_cities")])
+    keyboard = InlineKeyboardMarkup(keyboard_buttons)
+    
+    await query.edit_message_text(
+        f"📍 **Откуда:** {from_city}\n"
+        f"📍 **Выберите город назначения:**",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+
+async def handle_to_city_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка выбора города назначения"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    to_city = query.data.replace('to_city_', '')
+    
+    # Получаем город отправления
+    user_data = user_data_store.get(user_id, {})
+    from_city = user_data.get('from_city')
+    
+    if not from_city:
+        await query.edit_message_text(
+            "❌ Ошибка: город отправления не выбран. Попробуйте снова.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 Начать заново", callback_data="search_routes")
+            ]])
+        )
+        return
+    
+    # Сохраняем выбранный маршрут
+    user_data_store[user_id]['to_city'] = to_city
+    user_data_store[user_id]['route_selected'] = True
+    
+    # Показываем календарь для выбора даты
+    keyboard = get_date_keyboard()
+    
+    await query.edit_message_text(
+        f"📍 **Маршрут:** {from_city} → {to_city}\n"
+        f"📅 **Выберите дату для поиска рейсов:**",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+    
+    return SEARCH_DATE
+
+async def handle_search_by_directions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка поиска по готовым направлениям (старый метод)"""
+    query = update.callback_query
+    await query.answer()
+    
     # Создаем клавиатуру для выбора направления
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🏙️ Минск → Островец", callback_data="search_dir_minsk_ostrovets")],
@@ -1897,20 +2119,20 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("🏘️ Островец → Сморгонь", callback_data="search_dir_ostrovets_smorgon")],
         [InlineKeyboardButton("🏘️ Сморгонь → Островец", callback_data="search_dir_smorgon_ostrovets")],
         [InlineKeyboardButton("🔄 Все направления", callback_data="search_dir_all")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="search_routes")],
         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
     ])
     
-    if update.message:
-        await update.message.reply_text(
-            "🛣️ **Выберите направление для поиска:**\n\n"
-            "🚌 **Основные маршруты:**\n"
-            "• Минск ↔ Островец\n\n"
-            "🏙️ **Маршруты через Сморгонь:**\n"
-            "• Минск ↔ Сморгонь\n"
-            "• Островец ↔ Сморгонь\n\n"
-            "💡 *Маршруты через Сморгонь включают транзитные рейсы*",
-            parse_mode='Markdown',
-            reply_markup=keyboard
+    await query.edit_message_text(
+        "🛣️ **Выберите направление для поиска:**\n\n"
+        "🚌 **Основные маршруты:**\n"
+        "• Минск ↔ Островец\n\n"
+        "🏙️ **Маршруты через Сморгонь:**\n"
+        "• Минск ↔ Сморгонь\n"
+        "• Островец ↔ Сморгонь\n\n"
+        "💡 *Маршруты через Сморгонь включают транзитные рейсы*",
+        parse_mode='Markdown',
+        reply_markup=keyboard
         )
     elif update.callback_query:
         await update.callback_query.edit_message_text(
@@ -1960,14 +2182,23 @@ def format_routes_message(routes_data, date, direction='all'):
         
         for i, route in enumerate(routes, 1):
             seats = route.get('available_seats', 0)
-            seat_emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
             
             # Форматируем основную информацию
             time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
             duration = route.get('duration', 'н/д')
             
             section.append(f"{i}. {time_info} ({duration})")
-            section.append(f"   {seat_emoji} {seats} мест")
+            
+            # Проверяем, нужно ли показывать места (для Сморгонь-Островец не показываем)
+            from_city = route.get('from_city', '')
+            to_city = route.get('to_city', '')
+            is_smorgon_to_ostrovets = (from_city == "Сморгонь" and to_city == "Островец")
+            
+            if not is_smorgon_to_ostrovets and seats is not None:
+                seat_emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
+                section.append(f"   {seat_emoji} {seats} мест")
+            elif is_smorgon_to_ostrovets:
+                section.append(f"   ✅ Всех берут")
             
             # Добавляем информацию о промежуточных городах для транзитных маршрутов
             if route.get('via_smorgon'):
@@ -2354,6 +2585,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "search_routes":
         # Новый поиск с выбором направления
         await handle_regular_search(update, context)
+    
+    elif data == "search_by_cities":
+        # Поиск с выбором городов по отдельности
+        await handle_search_by_cities(update, context)
+    
+    elif data == "search_by_directions":
+        # Поиск по готовым направлениям
+        await handle_search_by_directions(update, context)
+    
+    elif data.startswith("from_city_"):
+        # Обработка выбора города отправления
+        await handle_from_city_choice(update, context)
+    
+    elif data.startswith("to_city_"):
+        # Обработка выбора города назначения
+        await handle_to_city_choice(update, context)
     
     elif data == "smorgon_info":
         # Показываем информацию о Сморгони

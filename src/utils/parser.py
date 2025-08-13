@@ -201,11 +201,11 @@ class FinalMarshrutochkaParser:
                 route_info['duration_minutes'] = total_minutes
                 
                 # Определяем тип маршрута по времени
-                if 140 <= total_minutes <= 155:  # ~2ч 25мин - обычно через Сморгонь
+                if 180 <= total_minutes <= 210:  # ~3ч 10мин - через Сморгонь
                     route_info['via_smorgon'] = True
                     route_info['intermediate_cities'] = ["Сморгонь"]
                     route_info['route_type'] = 'via_smorgon_estimated'
-                elif 120 <= total_minutes <= 135:  # ~2ч 10мин - обычно через Ошмяны
+                elif 120 <= total_minutes <= 135:  # ~2ч 10мин - через Ошмяны
                     route_info['via_oshmiany'] = True
                     route_info['intermediate_cities'] = ["Ошмяны"]
                     route_info['route_type'] = 'via_oshmiany_estimated'
@@ -283,7 +283,7 @@ class FinalMarshrutochkaParser:
                         if smorgon_arrival:
                             smorgon_route['arrival_time'] = smorgon_arrival
                             # Обновляем длительность
-                            smorgon_route['duration'] = "~1 ч 15 мин"
+                            smorgon_route['duration'] = "~2 ч 5 мин"
                     except:
                         pass
                 
@@ -308,13 +308,13 @@ class FinalMarshrutochkaParser:
                 if arrival_time:
                     try:
                         from .route_analyzer import RouteAnalyzer
-                        # Вычисляем время отправления из Сморгони (прибытие в Минск минус ~1ч 10мин)
+                        # Вычисляем время отправления из Сморгони (прибытие в Минск минус ~2ч 5мин)
                         from datetime import datetime, timedelta
                         arrival_dt = datetime.strptime(arrival_time, "%H:%M")
-                        departure_dt = arrival_dt - timedelta(minutes=70)  # ~1ч 10мин от Сморгони до Минска
+                        departure_dt = arrival_dt - timedelta(minutes=125)  # ~2ч 5мин от Сморгони до Минска
                         smorgon_route['departure_time'] = departure_dt.strftime("%H:%M")
                         # Обновляем длительность
-                        smorgon_route['duration'] = "~1 ч 10 мин"
+                        smorgon_route['duration'] = "~2 ч 5 мин"
                     except:
                         pass
                 
@@ -346,7 +346,7 @@ class FinalMarshrutochkaParser:
                         if smorgon_arrival:
                             smorgon_route['arrival_time'] = smorgon_arrival
                             # Обновляем длительность
-                            smorgon_route['duration'] = "~1 ч 10 мин"
+                            smorgon_route['duration'] = "~1 ч 5 мин"
                     except:
                         pass
                 
@@ -372,13 +372,13 @@ class FinalMarshrutochkaParser:
                 if departure_time and arrival_time:
                     try:
                         from .route_analyzer import RouteAnalyzer
-                        # Вычисляем время отправления из Сморгони (отправление из Минска + ~1ч 15мин)
+                        # Вычисляем время отправления из Сморгони (отправление из Минска + ~2ч 5мин)
                         from datetime import datetime, timedelta
                         departure_dt = datetime.strptime(departure_time, "%H:%M")
-                        smorgon_departure_dt = departure_dt + timedelta(minutes=75)  # ~1ч 15мин от Минска до Сморгони
+                        smorgon_departure_dt = departure_dt + timedelta(minutes=125)  # ~2ч 5мин от Минска до Сморгони
                         smorgon_route['departure_time'] = smorgon_departure_dt.strftime("%H:%M")
                         # Обновляем длительность
-                        smorgon_route['duration'] = "~1 ч 10 мин"
+                        smorgon_route['duration'] = "~1 ч 5 мин"
                     except:
                         pass
                 
