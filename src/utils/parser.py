@@ -166,6 +166,58 @@ class FinalMarshrutochkaParser:
                 if reservation_url:
                     route_info['reservation_url'] = reservation_url
             
+            # НОВОЕ: Анализ промежуточных городов и типа маршрута
+            route_text = route_block.get_text()
+            
+            # Инициализируем поля для анализа
+            route_info['via_smorgon'] = False
+            route_info['via_oshmiany'] = False
+            route_info['intermediate_cities'] = []
+            route_info['route_type'] = 'unknown'
+            
+            # Проверяем упоминание конкретных городов в тексте
+            if "Сморгонь" in route_text or "сморгонь" in route_text.lower():
+                route_info['via_smorgon'] = True
+                route_info['intermediate_cities'] = ["Сморгонь"]
+                route_info['route_type'] = 'via_smorgon'
+            elif "Ошмяны" in route_text or "ошмяны" in route_text.lower():
+                route_info['via_oshmiany'] = True
+                route_info['intermediate_cities'] = ["Ошмяны"]
+                route_info['route_type'] = 'via_oshmiany'
+            
+            # Анализ по времени в пути (если прямого указания нет)
+            if route_info.get('duration') and route_info['route_type'] == 'unknown':
+                duration_str = route_info['duration']
+                # Парсим длительность (например: "2 ч 25 мин")
+                hours_match = re.search(r'(\d+)\s*ч', duration_str)
+                minutes_match = re.search(r'(\d+)\s*мин', duration_str)
+                
+                total_minutes = 0
+                if hours_match:
+                    total_minutes += int(hours_match.group(1)) * 60
+                if minutes_match:
+                    total_minutes += int(minutes_match.group(1))
+                
+                route_info['duration_minutes'] = total_minutes
+                
+                # Определяем тип маршрута по времени
+                if 140 <= total_minutes <= 155:  # ~2ч 25мин - обычно через Сморгонь
+                    route_info['via_smorgon'] = True
+                    route_info['intermediate_cities'] = ["Сморгонь"]
+                    route_info['route_type'] = 'via_smorgon_estimated'
+                elif 120 <= total_minutes <= 135:  # ~2ч 10мин - обычно через Ошмяны
+                    route_info['via_oshmiany'] = True
+                    route_info['intermediate_cities'] = ["Ошмяны"]
+                    route_info['route_type'] = 'via_oshmiany_estimated'
+                else:
+                    route_info['route_type'] = 'direct_or_unknown'
+            
+            # Извлекаем описание маршрута (если есть)
+            route_description_elements = route_block.find_all('div', class_=['nf-route-point__location', 'nf-route__description'])
+            if route_description_elements:
+                descriptions = [elem.get_text().strip() for elem in route_description_elements]
+                route_info['route_description'] = ' '.join(descriptions)
+            
             # Проверяем, что у нас есть минимальные данные
             if route_info.get('departure_time') and route_info.get('arrival_time'):
                 return route_info
@@ -207,27 +259,175 @@ class FinalMarshrutochkaParser:
         """Получить маршруты Островец-Минск"""
         return await self.search_routes("Островец", "Минск", date)
     
+    async def get_routes_minsk_smorgon(self, date: str) -> List[Dict]:
+        """Получить маршруты Минск-Сморгонь (включая транзитные)"""
+        # Получаем все маршруты Минск-Островец и фильтруем те, что проходят через Сморгонь
+        all_routes = await self.search_routes("Минск", "Островец", date)
+        smorgon_routes = []
+        
+        for route in all_routes:
+            if route.get('via_smorgon') or "Сморгонь" in route.get('route_description', ''):
+                # Создаем копию маршрута для Минск-Сморгонь
+                smorgon_route = route.copy()
+                smorgon_route['to_city'] = 'Сморгонь'
+                
+                # Пытаемся вычислить время прибытия в Сморгонь
+                departure_time = route.get('departure_time')
+                if departure_time:
+                    try:
+                        from .route_analyzer import RouteAnalyzer
+                        smorgon_arrival = RouteAnalyzer.calculate_intermediate_arrival_time(
+                            departure_time, "Островец", 
+                            ["Минск", "Сморгонь", "Островец"], "Сморгонь"
+                        )
+                        if smorgon_arrival:
+                            smorgon_route['arrival_time'] = smorgon_arrival
+                            # Обновляем длительность
+                            smorgon_route['duration'] = "~1 ч 15 мин"
+                    except:
+                        pass
+                
+                smorgon_routes.append(smorgon_route)
+        
+        return smorgon_routes
+    
+    async def get_routes_smorgon_minsk(self, date: str) -> List[Dict]:
+        """Получить маршруты Сморгонь-Минск (включая транзитные)"""
+        # Получаем все маршруты Островец-Минск и фильтруем те, что проходят через Сморгонь
+        all_routes = await self.search_routes("Островец", "Минск", date)
+        smorgon_routes = []
+        
+        for route in all_routes:
+            if route.get('via_smorgon') or "Сморгонь" in route.get('route_description', ''):
+                # Создаем копию маршрута для Сморгонь-Минск
+                smorgon_route = route.copy()
+                smorgon_route['from_city'] = 'Сморгонь'
+                
+                # Пытаемся вычислить время отправления из Сморгони
+                arrival_time = route.get('arrival_time')
+                if arrival_time:
+                    try:
+                        from .route_analyzer import RouteAnalyzer
+                        # Вычисляем время отправления из Сморгони (прибытие в Минск минус ~1ч 10мин)
+                        from datetime import datetime, timedelta
+                        arrival_dt = datetime.strptime(arrival_time, "%H:%M")
+                        departure_dt = arrival_dt - timedelta(minutes=70)  # ~1ч 10мин от Сморгони до Минска
+                        smorgon_route['departure_time'] = departure_dt.strftime("%H:%M")
+                        # Обновляем длительность
+                        smorgon_route['duration'] = "~1 ч 10 мин"
+                    except:
+                        pass
+                
+                smorgon_routes.append(smorgon_route)
+        
+        return smorgon_routes
+    
+    async def get_routes_ostrovets_smorgon(self, date: str) -> List[Dict]:
+        """Получить маршруты Островец-Сморгонь (включая транзитные)"""
+        # Получаем все маршруты Островец-Минск и фильтруем те, что проходят через Сморгонь
+        all_routes = await self.search_routes("Островец", "Минск", date)
+        smorgon_routes = []
+        
+        for route in all_routes:
+            if route.get('via_smorgon') or "Сморгонь" in route.get('route_description', ''):
+                # Создаем копию маршрута для Островец-Сморгонь
+                smorgon_route = route.copy()
+                smorgon_route['to_city'] = 'Сморгонь'
+                
+                # Пытаемся вычислить время прибытия в Сморгонь
+                departure_time = route.get('departure_time')
+                if departure_time:
+                    try:
+                        from .route_analyzer import RouteAnalyzer
+                        smorgon_arrival = RouteAnalyzer.calculate_intermediate_arrival_time(
+                            departure_time, "Минск", 
+                            ["Островец", "Сморгонь", "Минск"], "Сморгонь"
+                        )
+                        if smorgon_arrival:
+                            smorgon_route['arrival_time'] = smorgon_arrival
+                            # Обновляем длительность
+                            smorgon_route['duration'] = "~1 ч 10 мин"
+                    except:
+                        pass
+                
+                smorgon_routes.append(smorgon_route)
+        
+        return smorgon_routes
+    
+    async def get_routes_smorgon_ostrovets(self, date: str) -> List[Dict]:
+        """Получить маршруты Сморгонь-Островец (включая транзитные)"""
+        # Получаем все маршруты Минск-Островец и фильтруем те, что проходят через Сморгонь
+        all_routes = await self.search_routes("Минск", "Островец", date)
+        smorgon_routes = []
+        
+        for route in all_routes:
+            if route.get('via_smorgon') or "Сморгонь" in route.get('route_description', ''):
+                # Создаем копию маршрута для Сморгонь-Островец
+                smorgon_route = route.copy()
+                smorgon_route['from_city'] = 'Сморгонь'
+                
+                # Пытаемся вычислить время отправления из Сморгони
+                arrival_time = route.get('arrival_time')
+                departure_time = route.get('departure_time')
+                if departure_time and arrival_time:
+                    try:
+                        from .route_analyzer import RouteAnalyzer
+                        # Вычисляем время отправления из Сморгони (отправление из Минска + ~1ч 15мин)
+                        from datetime import datetime, timedelta
+                        departure_dt = datetime.strptime(departure_time, "%H:%M")
+                        smorgon_departure_dt = departure_dt + timedelta(minutes=75)  # ~1ч 15мин от Минска до Сморгони
+                        smorgon_route['departure_time'] = smorgon_departure_dt.strftime("%H:%M")
+                        # Обновляем длительность
+                        smorgon_route['duration'] = "~1 ч 10 мин"
+                    except:
+                        pass
+                
+                smorgon_routes.append(smorgon_route)
+        
+        return smorgon_routes
+    
     async def get_all_routes(self, date: str) -> Dict[str, List[Dict]]:
-        """Получить все маршруты в обе стороны"""
+        """Получить все маршруты в обе стороны, включая через Сморгонь"""
         result = {
             'minsk_to_ostrovets': [],
             'ostrovets_to_minsk': [],
+            'minsk_to_smorgon': [],
+            'smorgon_to_minsk': [],
+            'ostrovets_to_smorgon': [],
+            'smorgon_to_ostrovets': [],
             'search_date': date,
             'search_time': datetime.now().isoformat(),
             'success': False
         }
         
         try:
-            # Получаем маршруты в обе стороны
+            # Получаем основные маршруты
             logger.info("Поиск маршрутов Минск-Островец...")
             result['minsk_to_ostrovets'] = await self.get_routes_minsk_ostrovets(date)
 
             logger.info("Поиск маршрутов Островец-Минск...")
             result['ostrovets_to_minsk'] = await self.get_routes_ostrovets_minsk(date)
             
-            # Успех только если получили хотя бы один рейс
-            if result['minsk_to_ostrovets'] or result['ostrovets_to_minsk']:
+            # Получаем маршруты через Сморгонь
+            logger.info("Поиск маршрутов Минск-Сморгонь...")
+            result['minsk_to_smorgon'] = await self.get_routes_minsk_smorgon(date)
+            
+            logger.info("Поиск маршрутов Сморгонь-Минск...")
+            result['smorgon_to_minsk'] = await self.get_routes_smorgon_minsk(date)
+            
+            logger.info("Поиск маршрутов Островец-Сморгонь...")
+            result['ostrovets_to_smorgon'] = await self.get_routes_ostrovets_smorgon(date)
+            
+            logger.info("Поиск маршрутов Сморгонь-Островец...")
+            result['smorgon_to_ostrovets'] = await self.get_routes_smorgon_ostrovets(date)
+            
+            # Подсчитываем общее количество найденных маршрутов
+            total_routes = sum(len(routes) for routes in result.values() if isinstance(routes, list))
+            
+            # Успех если получили хотя бы один рейс
+            if total_routes > 0:
                 result['success'] = True
+                result['total_routes'] = total_routes
             
         except Exception as e:
             logger.error(f"Ошибка при получении всех маршрутов: {e}")

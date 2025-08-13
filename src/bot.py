@@ -98,6 +98,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
  BOOKING_ROUTE_SELECT, BOOKING_PASSENGER_COUNT, BOOKING_PASSENGER_NAME,
  BOOKING_PASSENGER_PHONE, BOOKING_CONFIRM) = range(26)
 
+from telegram.error import BadRequest
+
 # Глобальные переменные
 parser = None
 requests_auth_manager = None # Для нового менеджера
@@ -106,6 +108,35 @@ active_monitors = {}  # user_id -> monitor_config
 user_data_store = {}  # user_id -> user_data
 application = None  # will hold the Application instance
 admin_panel = None  # Административная панель
+
+# Вспомогательная функция для безопасного редактирования сообщений
+async def safe_edit_message(query_or_update, text: str, reply_markup=None, parse_mode=None):
+    """Безопасное редактирование сообщения с обработкой ошибки 'Message is not modified'"""
+    try:
+        if hasattr(query_or_update, 'edit_message_text'):
+            # Это callback_query
+            await query_or_update.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+        elif hasattr(query_or_update, 'callback_query'):
+            # Это update с callback_query
+            await query_or_update.callback_query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            logger.debug(f"Сообщение не изменилось для пользователя, пропускаем редактирование")
+            return
+        else:
+            logger.error(f"Ошибка при редактировании сообщения: {e}")
+            raise e
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при редактировании сообщения: {e}")
+        raise e
 
 # Создаем директории для данных
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
@@ -266,10 +297,16 @@ def create_webapp_keyboard(direction: str = None, date: str = None, additional_b
         direction_names = {
             "minsk_ostrovets": "🏙️ Минск → Островец",
             "ostrovets_minsk": "🏘️ Островец → Минск",
-            "both": "🔄 Оба направления"
+            "minsk_smorgon": "🏙️ Минск → Сморгонь",
+            "smorgon_minsk": "🏘️ Сморгонь → Минск",
+            "ostrovets_smorgon": "🏘️ Островец → Сморгонь",
+            "smorgon_ostrovets": "🏘️ Сморгонь → Островец",
+            "both": "🔄 Оба направления",
+            "all": "🔄 Все направления"
         }
         
-        if direction in ["minsk_ostrovets", "ostrovets_minsk"]:
+        if direction in ["minsk_ostrovets", "ostrovets_minsk", "minsk_smorgon", "smorgon_minsk", 
+                        "ostrovets_smorgon", "smorgon_ostrovets"]:
             webapp_url = create_webapp_url(direction, date)
             web_app = WebAppInfo(url=webapp_url)
             keyboard.append([
@@ -278,9 +315,16 @@ def create_webapp_keyboard(direction: str = None, date: str = None, additional_b
                     web_app=web_app
                 )
             ])
-        elif direction == "both":
-            # Добавляем кнопки для обоих направлений
-            webapp_url = create_webapp_url("both", date)
+            
+            # Добавляем специальную информацию для маршрутов через Сморгонь
+            if "smorgon" in direction:
+                keyboard.append([
+                    InlineKeyboardButton("ℹ️ Информация о Сморгони", callback_data="smorgon_info")
+                ])
+                
+        elif direction in ["both", "all"]:
+            # Добавляем кнопки для множественных направлений
+            webapp_url = create_webapp_url(direction, date)
             
             keyboard.extend([
                 [InlineKeyboardButton("🚌 Открыть сайт маршруточки", web_app=WebAppInfo(url=webapp_url))]
@@ -829,7 +873,7 @@ async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYP
             ]
             
             if update.callback_query:
-                await update.callback_query.edit_message_text(
+                await safe_edit_message(update.callback_query,
                     profile_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
@@ -856,7 +900,7 @@ async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYP
             ]
             
             if update.callback_query:
-                await update.callback_query.edit_message_text(
+                await safe_edit_message(update.callback_query,
                     error_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
@@ -867,7 +911,7 @@ async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYP
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
-    
+
     except Exception as e:
         logger.error(f"Ошибка при получении профиля пользователя {user_id}: {e}")
         error_text = "❌ **Системная ошибка при загрузке профиля**\n\nПопробуйте позже."
@@ -878,7 +922,7 @@ async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYP
         ]
         
         if update.callback_query:
-            await update.callback_query.edit_message_text(
+            await safe_edit_message(update.callback_query,
                 error_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
@@ -1848,13 +1892,23 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🏙️ Минск → Островец", callback_data="search_dir_minsk_ostrovets")],
         [InlineKeyboardButton("🏘️ Островец → Минск", callback_data="search_dir_ostrovets_minsk")],
-        [InlineKeyboardButton("🔄 Оба направления", callback_data="search_dir_both")],
+        [InlineKeyboardButton("🏙️ Минск → Сморгонь", callback_data="search_dir_minsk_smorgon")],
+        [InlineKeyboardButton("🏘️ Сморгонь → Минск", callback_data="search_dir_smorgon_minsk")],
+        [InlineKeyboardButton("🏘️ Островец → Сморгонь", callback_data="search_dir_ostrovets_smorgon")],
+        [InlineKeyboardButton("🏘️ Сморгонь → Островец", callback_data="search_dir_smorgon_ostrovets")],
+        [InlineKeyboardButton("🔄 Все направления", callback_data="search_dir_all")],
         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
     ])
     
     if update.message:
         await update.message.reply_text(
-            "🛣️ **Выберите направление для поиска:**",
+            "🛣️ **Выберите направление для поиска:**\n\n"
+            "🚌 **Основные маршруты:**\n"
+            "• Минск ↔ Островец\n\n"
+            "🏙️ **Маршруты через Сморгонь:**\n"
+            "• Минск ↔ Сморгонь\n"
+            "• Островец ↔ Сморгонь\n\n"
+            "💡 *Маршруты через Сморгонь включают транзитные рейсы*",
             parse_mode='Markdown',
             reply_markup=keyboard
         )
@@ -1867,64 +1921,146 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
     
     return SEARCH_FROM
 
-def format_routes_message(routes_data, date, direction='both'):
+def format_routes_message(routes_data, date, direction='all'):
     """Форматирование сообщения с рейсами"""
     if not routes_data.get('success', False):
         return "❌ **Не удалось получить данные**"
     
-    minsk_routes = routes_data.get('minsk_to_ostrovets', [])[:8]
-    ostrovets_routes = routes_data.get('ostrovets_to_minsk', [])[:8]
+    # Получаем данные для всех направлений
+    minsk_to_ostrovets = routes_data.get('minsk_to_ostrovets', [])[:8]
+    ostrovets_to_minsk = routes_data.get('ostrovets_to_minsk', [])[:8]
+    minsk_to_smorgon = routes_data.get('minsk_to_smorgon', [])[:8]
+    smorgon_to_minsk = routes_data.get('smorgon_to_minsk', [])[:8]
+    ostrovets_to_smorgon = routes_data.get('ostrovets_to_smorgon', [])[:8]
+    smorgon_to_ostrovets = routes_data.get('smorgon_to_ostrovets', [])[:8]
     
     # Определяем направление из данных direction
-    if direction == 'search_dir_minsk_ostrovets':
-        direction = 'minsk_ostrovets'
-    elif direction == 'search_dir_ostrovets_minsk':
-        direction = 'ostrovets_minsk'
-    elif direction == 'search_dir_both':
-        direction = 'both'
+    direction_mapping = {
+        'search_dir_minsk_ostrovets': 'minsk_ostrovets',
+        'search_dir_ostrovets_minsk': 'ostrovets_minsk',
+        'search_dir_minsk_smorgon': 'minsk_smorgon',
+        'search_dir_smorgon_minsk': 'smorgon_minsk',
+        'search_dir_ostrovets_smorgon': 'ostrovets_smorgon',
+        'search_dir_smorgon_ostrovets': 'smorgon_ostrovets',
+        'search_dir_both': 'both',
+        'search_dir_all': 'all'
+    }
+    
+    if direction in direction_mapping:
+        direction = direction_mapping[direction]
     
     parts = [f"📅 **Рейсы на {date}**", ""]
     
-    # Показываем только выбранное направление
-    if direction == 'minsk_ostrovets' and minsk_routes:
-        parts.append("🚌 **Минск → Островец:**")
-        for i, route in enumerate(minsk_routes, 1):
-            seats = route.get('available_seats', 0)
-            emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
-            parts.append(f"{i}. **{route.get('departure_time')} → {route.get('arrival_time')}** ({route.get('duration', 'н/д')})")
-            parts.append(f"   {emoji} {seats} мест")
-        parts.append(f"\n📊 **Всего рейсов:** {len(minsk_routes)}")
+    def format_route_section(routes, title, emoji="🚌"):
+        """Форматирует секцию маршрутов"""
+        if not routes:
+            return []
+            
+        section = [f"{emoji} **{title}:**"]
         
-    elif direction == 'ostrovets_minsk' and ostrovets_routes:
-        parts.append("🚌 **Островец → Минск:**")
-        for i, route in enumerate(ostrovets_routes, 1):
+        for i, route in enumerate(routes, 1):
             seats = route.get('available_seats', 0)
-            emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
-            parts.append(f"{i}. **{route.get('departure_time')} → {route.get('arrival_time')}** ({route.get('duration', 'н/д')})")
-            parts.append(f"   {emoji} {seats} мест")
-        parts.append(f"\n📊 **Всего рейсов:** {len(ostrovets_routes)}")
+            seat_emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
+            
+            # Форматируем основную информацию
+            time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
+            duration = route.get('duration', 'н/д')
+            
+            section.append(f"{i}. {time_info} ({duration})")
+            section.append(f"   {seat_emoji} {seats} мест")
+            
+            # Добавляем информацию о промежуточных городах для транзитных маршрутов
+            if route.get('via_smorgon'):
+                section.append(f"   🛣️ *через Сморгонь*")
+            elif route.get('via_oshmiany'):
+                section.append(f"   🛣️ *через Ошмяны*")
+                
+        return section
+    
+    # Показываем рейсы в зависимости от выбранного направления
+    if direction == 'minsk_ostrovets':
+        parts.extend(format_route_section(minsk_to_ostrovets, "Минск → Островец"))
+        parts.append(f"\n📊 **Всего рейсов:** {len(minsk_to_ostrovets)}")
+        
+    elif direction == 'ostrovets_minsk':
+        parts.extend(format_route_section(ostrovets_to_minsk, "Островец → Минск"))
+        parts.append(f"\n� **Всего рейсов:** {len(ostrovets_to_minsk)}")
+        
+    elif direction == 'minsk_smorgon':
+        parts.extend(format_route_section(minsk_to_smorgon, "Минск → Сморгонь", "🏙️"))
+        if minsk_to_smorgon:
+            parts.append("\n💡 *Включены транзитные рейсы до Островца*")
+        parts.append(f"\n📊 **Всего рейсов:** {len(minsk_to_smorgon)}")
+        
+    elif direction == 'smorgon_minsk':
+        parts.extend(format_route_section(smorgon_to_minsk, "Сморгонь → Минск", "🏘️"))
+        if smorgon_to_minsk:
+            parts.append("\n💡 *Включены транзитные рейсы из Островца*")
+        parts.append(f"\n📊 **Всего рейсов:** {len(smorgon_to_minsk)}")
+        
+    elif direction == 'ostrovets_smorgon':
+        parts.extend(format_route_section(ostrovets_to_smorgon, "Островец → Сморгонь", "🏘️"))
+        if ostrovets_to_smorgon:
+            parts.append("\n💡 *Включены транзитные рейсы до Минска*")
+        parts.append(f"\n📊 **Всего рейсов:** {len(ostrovets_to_smorgon)}")
+        
+    elif direction == 'smorgon_ostrovets':
+        parts.extend(format_route_section(smorgon_to_ostrovets, "Сморгонь → Островец", "🏘️"))
+        if smorgon_to_ostrovets:
+            parts.append("\n� *Включены транзитные рейсы из Минска*")
+        parts.append(f"\n📊 **Всего рейсов:** {len(smorgon_to_ostrovets)}")
         
     elif direction == 'both':
-        # Показываем оба направления только если выбрано "оба"
-        if minsk_routes:
-            parts.append("🚌 **Минск → Островец:**")
-            for i, route in enumerate(minsk_routes, 1):
-                seats = route.get('available_seats', 0)
-                emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
-                parts.append(f"{i}. **{route.get('departure_time')} → {route.get('arrival_time')}** ({route.get('duration', 'н/д')})")
-                parts.append(f"   {emoji} {seats} мест")
+        # Показываем основные направления
+        if minsk_to_ostrovets:
+            parts.extend(format_route_section(minsk_to_ostrovets, "Минск → Островец"))
             parts.append("")
         
-        if ostrovets_routes:
-            parts.append("🚌 **Островец → Минск:**")
-            for i, route in enumerate(ostrovets_routes, 1):
-                seats = route.get('available_seats', 0)
-                emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
-                parts.append(f"{i}. **{route.get('departure_time')} → {route.get('arrival_time')}** ({route.get('duration', 'н/д')})")
-                parts.append(f"   {emoji} {seats} мест")
+        if ostrovets_to_minsk:
+            parts.extend(format_route_section(ostrovets_to_minsk, "Островец → Минск"))
+            parts.append("")
         
-        total = len(minsk_routes) + len(ostrovets_routes)
-        parts.append(f"\n📊 **Всего рейсов:** {total}")
+        total = len(minsk_to_ostrovets) + len(ostrovets_to_minsk)
+        parts.append(f"📊 **Всего рейсов:** {total}")
+        
+    elif direction == 'all':
+        # Показываем все направления
+        all_routes = []
+        
+        if minsk_to_ostrovets:
+            parts.extend(format_route_section(minsk_to_ostrovets, "Минск → Островец"))
+            parts.append("")
+            all_routes.extend(minsk_to_ostrovets)
+        
+        if ostrovets_to_minsk:
+            parts.extend(format_route_section(ostrovets_to_minsk, "Островец → Минск"))
+            parts.append("")
+            all_routes.extend(ostrovets_to_minsk)
+        
+        if minsk_to_smorgon:
+            parts.extend(format_route_section(minsk_to_smorgon, "Минск → Сморгонь", "🏙️"))
+            parts.append("")
+            all_routes.extend(minsk_to_smorgon)
+        
+        if smorgon_to_minsk:
+            parts.extend(format_route_section(smorgon_to_minsk, "Сморгонь → Минск", "🏘️"))
+            parts.append("")
+            all_routes.extend(smorgon_to_minsk)
+        
+        if ostrovets_to_smorgon:
+            parts.extend(format_route_section(ostrovets_to_smorgon, "Островец → Сморгонь", "🏘️"))
+            parts.append("")
+            all_routes.extend(ostrovets_to_smorgon)
+        
+        if smorgon_to_ostrovets:
+            parts.extend(format_route_section(smorgon_to_ostrovets, "Сморгонь → Островец", "🏘️"))
+            parts.append("")
+            all_routes.extend(smorgon_to_ostrovets)
+        
+        parts.append(f"📊 **Всего рейсов:** {len(all_routes)}")
+        
+        if any([minsk_to_smorgon, smorgon_to_minsk, ostrovets_to_smorgon, smorgon_to_ostrovets]):
+            parts.append("\n� *Маршруты через Сморгонь включают транзитные рейсы*")
     else:
         parts.append("❌ **Рейсы не найдены для выбранного направления**")
     
@@ -1939,14 +2075,14 @@ async def book_ticket_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Проверяем, что пользователь авторизован
     if not bot_auth_manager.is_authenticated(user_id):
-        await query.edit_message_text(
+        await safe_edit_message(query,
             "❌ Для бронирования билетов необходимо войти в аккаунт",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔒 Войти в аккаунт", callback_data="login_requests")]])
         )
         return
 
     # Показываем интерфейс выбора маршрута
-    await query.edit_message_text(
+    await safe_edit_message(query,
         "🎫 **Бронирование билета**\n\n"
         "📅 Выберите дату поездки:",
         reply_markup=get_date_keyboard(),
@@ -1967,18 +2103,27 @@ async def handle_booking_date_choice(update: Update, context: ContextTypes.DEFAU
     selected_date = query.data.replace("date_", "")
     context.user_data['booking_date'] = selected_date
     
-    await query.edit_message_text(
+    await safe_edit_message(query,
         f"🔍 **Поиск рейсов на {selected_date}...**",
         parse_mode='Markdown'
     )
     
     try:
         # Ищем доступные маршруты через менеджер авторизации
-        routes = await bot_auth_manager.search_routes(user_id, selected_date)
+        # Получаем маршруты в обоих направлениях для бронирования
+        routes_minsk_ostrovets = await bot_auth_manager.search_routes(user_id, "Минск", "Островец", selected_date)
+        routes_ostrovets_minsk = await bot_auth_manager.search_routes(user_id, "Островец", "Минск", selected_date)
         
-        if not routes:
+        # Объединяем все маршруты
+        all_routes = []
+        if routes_minsk_ostrovets:
+            all_routes.extend(routes_minsk_ostrovets)
+        if routes_ostrovets_minsk:
+            all_routes.extend(routes_ostrovets_minsk)
+        
+        if not all_routes:
             keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="book_ticket")]]
-            await query.edit_message_text(
+            await safe_edit_message(query,
                 f"❌ На {selected_date} нет доступных рейсов для бронирования",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
@@ -1988,24 +2133,24 @@ async def handle_booking_date_choice(update: Update, context: ContextTypes.DEFAU
         message = f"🎫 **Доступные рейсы на {selected_date}:**\n\n"
         keyboard = []
         
-        for i, route in enumerate(routes):
-            message += f"🚌 **{route.departure_time}** - {route.from_station} → {route.to_station}\n"
+        for i, route in enumerate(all_routes):
+            message += f"🚌 **{route.departure_time}** - {route.from_location} → {route.to_location}\n"
             message += f"💰 Цена: {route.price}\n"
-            if route.available_seats:
+            if hasattr(route, 'available_seats') and route.available_seats:
                 message += f"🪑 Мест: {route.available_seats}\n"
             message += "\n"
             
             keyboard.append([InlineKeyboardButton(
-                f"🎫 {route.departure_time} - {route.price}",
+                f"🎫 {route.departure_time} - {route.from_location} → {route.to_location}",
                 callback_data=f"booking_route_{i}"
             )])
         
         keyboard.append([InlineKeyboardButton("🔙 Выбрать другую дату", callback_data="book_ticket")])
         
         # Сохраняем маршруты в контексте
-        context.user_data['available_routes'] = routes
+        context.user_data['available_routes'] = all_routes
         
-        await query.edit_message_text(
+        await safe_edit_message(query,
             message,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -2014,7 +2159,7 @@ async def handle_booking_date_choice(update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         logger.error(f"Ошибка при поиске рейсов для бронирования: {e}")
         keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="book_ticket")]]
-        await query.edit_message_text(
+        await safe_edit_message(query,
             "❌ Произошла ошибка при поиске рейсов. Попробуйте позже.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -2108,12 +2253,14 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Создаем запрос на бронирование
     booking_request = BookingRequest(
-        route_info=route,
+        route_id=route.route_id if hasattr(route, 'route_id') else str(route_id),
+        passenger_count=1,
         passenger_name=context.user_data['passenger_name'],
-        passenger_phone=context.user_data['passenger_phone']
+        passenger_phone=context.user_data['passenger_phone'],
+        departure_date=context.user_data.get('booking_date', '')
     )
     
-    await query.edit_message_text(
+    await safe_edit_message(query,
         "⏳ Обрабатываю бронирование...",
         parse_mode='Markdown'
     )
@@ -2122,20 +2269,21 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Выполняем бронирование через менеджер авторизации
         result = await bot_auth_manager.book_ticket(user_id, booking_request)
         
-        if result.success:
-            confirmation_message = bot_auth_manager.format_booking_confirmation(result)
+        if result:
+            # result это UserBooking, а не BookingResult
+            confirmation_message = format_booking_confirmation(result)
             
             # Очищаем данные пользователя
             context.user_data.clear()
             
-            await query.edit_message_text(
+            await safe_edit_message(query,
                 confirmation_message,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]]),
                 parse_mode='Markdown'
             )
         else:
-            await query.edit_message_text(
-                f"❌ Ошибка бронирования: {result.error_message}",
+            await safe_edit_message(query,
+                "❌ Ошибка бронирования: не удалось создать бронирование",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔄 Попробовать снова", callback_data="book_ticket")],
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
@@ -2144,7 +2292,7 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         logger.error(f"Ошибка при бронировании билета: {e}")
-        await query.edit_message_text(
+        await safe_edit_message(query,
             "❌ Произошла ошибка при бронировании. Попробуйте позже.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Попробовать снова", callback_data="book_ticket")],
@@ -2207,6 +2355,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Новый поиск с выбором направления
         await handle_regular_search(update, context)
     
+    elif data == "smorgon_info":
+        # Показываем информацию о Сморгони
+        from src.utils.route_analyzer import RouteAnalyzer
+        warning_message = RouteAnalyzer.generate_smorgon_warning()
+        
+        await safe_edit_message(query,
+            warning_message,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Назад", callback_data="search_routes")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+            ])
+        )
+    
     elif data.startswith("search_dir_"):
         # Обработка выбора направления для поиска
         await handle_direction_choice(update, context)
@@ -2222,7 +2384,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("date_") and user_id not in user_data_store:
         # Обычный поиск по дате
         selected_date = data.replace("date_", "")
-        await query.edit_message_text(f"🔍 **Ищу рейсы на {selected_date}...**", parse_mode='Markdown')
+        await safe_edit_message(query, f"🔍 **Ищу рейсы на {selected_date}...**", parse_mode='Markdown')
         
         try:
             await init_parser()
@@ -2231,13 +2393,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]]
             
-            await query.edit_message_text(
+            await safe_edit_message(query,
                 message,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
         except Exception as e:
-            await query.edit_message_text("❌ **Ошибка при поиске рейсов**", parse_mode='Markdown')
+            await safe_edit_message(query, "❌ **Ошибка при поиске рейсов**", parse_mode='Markdown')
     
     elif data == "back_to_main":
         # Очищаем данные пользователя при возврате в главное меню
