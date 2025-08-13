@@ -2133,13 +2133,7 @@ async def handle_search_by_directions(update: Update, context: ContextTypes.DEFA
         "💡 *Маршруты через Сморгонь включают транзитные рейсы*",
         parse_mode='Markdown',
         reply_markup=keyboard
-        )
-    elif update.callback_query:
-        await update.callback_query.edit_message_text(
-            "🛣️ **Выберите направление для поиска:**",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
+    )
     
     return SEARCH_FROM
 
