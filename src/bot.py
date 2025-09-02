@@ -1263,7 +1263,27 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
     user_id = query.from_user.id
     data = query.data
     
-    if data.startswith("range_"):
+    if data == "back_to_range_list":
+        # Возвращаемся к выбору диапазона из списка
+        time_type = user_data_store[user_id].get('time_type', 'departure')
+        await query.edit_message_text(
+            "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
+            reply_markup=get_time_range_keyboard(time_type),
+            parse_mode='Markdown'
+        )
+        return CHOOSE_TIME_RANGE
+    
+    elif data == "back_to_time_range":
+        # Возвращаемся к выбору диапазона времени
+        time_type = user_data_store[user_id].get('time_type', 'departure')
+        await query.edit_message_text(
+            "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
+            reply_markup=get_time_range_keyboard(time_type),
+            parse_mode='Markdown'
+        )
+        return CHOOSE_TIME_RANGE
+    
+    elif data.startswith("range_"):
         time_range = data.replace("range_", "")
         
         if time_range == "custom":
@@ -1371,6 +1391,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_booking_passenger_phone(update, context)
         return
     
+    # Проверяем, что пользователь находится в процессе настройки мониторинга
     if user_id not in user_data_store:
         # Обычный поиск рейсов
         await handle_regular_search(update, context)
@@ -1398,25 +1419,81 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return CHOOSE_DATE
     
-    # Ввод диапазона времени
+    # Ввод диапазона времени (только когда ожидается ввод времени)
     elif re.match(r'^\d{2}:\d{2}-\d{2}:\d{2}$', text):
-        user_data_store[user_id]['time_range'] = text
-        
-        config_text = format_monitor_config(user_data_store[user_id])
-        
-        await update.message.reply_text(
-            f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
-            "❓ **Запустить мониторинг?**",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Да, запустить!", callback_data="confirm_yes")],
-                [InlineKeyboardButton("❌ Нет, изменить", callback_data="confirm_no")]
-            ]),
-            parse_mode='Markdown'
-        )
-        
-        return CONFIRM_MONITORING
+        # Проверяем валидность времени
+        try:
+            time_parts = text.split('-')
+            start_time = time_parts[0]
+            end_time = time_parts[1]
+            
+            # Проверяем формат времени
+            start_hour, start_min = map(int, start_time.split(':'))
+            end_hour, end_min = map(int, end_time.split(':'))
+            
+            if not (0 <= start_hour <= 23 and 0 <= start_min <= 59 and 
+                   0 <= end_hour <= 23 and 0 <= end_min <= 59):
+                raise ValueError("Неверное время")
+            
+            # Проверяем, что начальное время меньше конечного
+            if start_hour * 60 + start_min >= end_hour * 60 + end_min:
+                await update.message.reply_text(
+                    "❌ **Ошибка в диапазоне времени**\n\n"
+                    "Время начала должно быть раньше времени окончания.\n"
+                    "Введите корректный диапазон в формате ЧЧ:ММ-ЧЧ:ММ",
+                    parse_mode='Markdown'
+                )
+                return CHOOSE_TIME_RANGE
+            
+            user_data_store[user_id]['time_range'] = text
+            
+            config_text = format_monitor_config(user_data_store[user_id])
+            
+            await update.message.reply_text(
+                f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
+                "❓ **Запустить мониторинг?**",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Да, запустить!", callback_data="confirm_yes")],
+                    [InlineKeyboardButton("❌ Нет, изменить", callback_data="confirm_no")],
+                    [InlineKeyboardButton("🔙 Диапазон времени", callback_data="back_to_time_range")]
+                ]),
+                parse_mode='Markdown'
+            )
+            
+            return CONFIRM_MONITORING
+            
+        except ValueError:
+            await update.message.reply_text(
+                "❌ **Неверный формат времени**\n\n"
+                "Используйте формат ЧЧ:ММ-ЧЧ:ММ, например:\n"
+                "• `07:00-09:00` - с 7 до 9 утра\n"
+                "• `17:30-19:30` - с 17:30 до 19:30\n\n"
+                "Убедитесь, что часы от 00 до 23, минуты от 00 до 59.",
+                parse_mode='Markdown'
+            )
+            return CHOOSE_TIME_RANGE
     
     else:
+        # Если формат не подходит ни под один из ожидаемых, показываем подсказку
+        if user_id in user_data_store:
+            # Проверяем какой именно ввод ожидается
+            if 'date' not in user_data_store[user_id]:
+                await update.message.reply_text(
+                    "❌ **Неверный формат**\n\n"
+                    "Ожидается дата в формате YYYY-MM-DD, например: `2025-01-15`",
+                    parse_mode='Markdown'
+                )
+                return CHOOSE_DATE
+            elif user_data_store[user_id].get('time_type') and 'time_range' not in user_data_store[user_id]:
+                await update.message.reply_text(
+                    "❌ **Неверный формат времени**\n\n"
+                    "Ожидается диапазон времени в формате ЧЧ:ММ-ЧЧ:ММ, например:\n"
+                    "• `07:00-09:00`\n"
+                    "• `17:30-19:30`",
+                    parse_mode='Markdown'
+                )
+                return CHOOSE_TIME_RANGE
+        
         await handle_regular_search(update, context)
 
 # ==================== MONITORING FUNCTIONS ====================
