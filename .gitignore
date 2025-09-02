@@ -60,6 +60,7 @@ temp/
 !docs/TESTING_GUIDE.md
 !docs/BETA_WORKFLOW.md
 !docs/CLEANUP_AND_FIXES_REPORT.md
+!docs/BUTTON_FREEZE_FIX_REPORT.md
 
 # Data files
 *.json
