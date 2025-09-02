@@ -472,10 +472,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик главного меню"""
+    """Обработчик главного меню - универсальный для всех conversation"""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+
+    # Очищаем состояние пользователя из хранилища
+    if user_id in user_data_store:
+        del user_data_store[user_id]
+    
+    # Очищаем состояние в context
+    context.user_data.clear()
 
     text = (
         "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
@@ -488,6 +495,13 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_main_menu_keyboard(user_id),
         parse_mode='Markdown'
     )
+    
+    # ВАЖНО: Завершаем conversation state
+    return ConversationHandler.END
+
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена любой conversation и переход в главное меню"""
+    return await handle_main_menu(update, context)
 
 async def my_monitors(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать мои мониторинги"""
@@ -598,6 +612,11 @@ async def start_monitoring_conversation(update: Update, context: ContextTypes.DE
     """Начало настройки мониторинга"""
     user_id = update.effective_user.id
     
+    # Очищаем любые предыдущие состояния
+    if user_id in user_data_store:
+        del user_data_store[user_id]
+    context.user_data.clear()
+    
     # Инициализируем данные пользователя
     user_data_store[user_id] = {}
     
@@ -703,6 +722,12 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def start_login_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало процесса входа через улучшенную систему авторизации"""
+    # Очищаем любые предыдущие состояния
+    user_id = update.effective_user.id
+    if user_id in user_data_store:
+        del user_data_store[user_id]
+    context.user_data.clear()
+    
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
         text="🔐 **ВХОД В АККАУНТ МАРШРУТОЧКИ**\n\n"
@@ -2498,6 +2523,11 @@ async def book_ticket_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     user_id = query.from_user.id
     
+    # Очищаем любые предыдущие состояния
+    if user_id in user_data_store:
+        del user_data_store[user_id]
+    context.user_data.clear()
+    
     # Проверяем, что пользователь авторизован
     if not bot_auth_manager.is_authenticated(user_id):
         await safe_edit_message(query,
@@ -2846,6 +2876,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Очищаем данные пользователя при возврате в главное меню
         if user_id in user_data_store:
             del user_data_store[user_id]
+        
+        # Очищаем состояние в context
+        context.user_data.clear()
             
         text = (
             "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
@@ -2858,6 +2891,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
+        
+        # ВАЖНО: Завершаем conversation state для button_callback
+        return ConversationHandler.END
     
     elif data == "login_requests":
         # Запускаем процесс входа - это обработается ConversationHandler
@@ -3709,7 +3745,7 @@ def register_handlers(application):
             ],
         },
         fallbacks=[
-            CallbackQueryHandler(handle_main_menu, pattern="^back_to_main$"),
+            CallbackQueryHandler(cancel_conversation, pattern="^back_to_main$"),
             CommandHandler('start', start),
         ],
         per_message=False,
@@ -3729,6 +3765,7 @@ def register_handlers(application):
             ],
         },
         fallbacks=[
+            CallbackQueryHandler(cancel_conversation, pattern="^back_to_main$"),
             CommandHandler('start', start),
         ],
         per_message=False,
@@ -3754,8 +3791,9 @@ def register_handlers(application):
             ],
         },
         fallbacks=[
+            CallbackQueryHandler(cancel_conversation, pattern="^back_to_main$"),
             CommandHandler('start', start),
-            CallbackQueryHandler(lambda u, c: ConversationHandler.END, pattern="^booking_cancel$"),
+            CallbackQueryHandler(cancel_conversation, pattern="^booking_cancel$"),
         ],
         per_message=False,
     )
@@ -3774,8 +3812,9 @@ def register_handlers(application):
             ],
         },
         fallbacks=[
+            CallbackQueryHandler(cancel_conversation, pattern="^back_to_main$"),
             CommandHandler('start', start),
-            CallbackQueryHandler(lambda u, c: ConversationHandler.END, pattern="^cancel_booking$"),
+            CallbackQueryHandler(cancel_conversation, pattern="^cancel_booking$"),
         ],
         per_message=False,
     )
