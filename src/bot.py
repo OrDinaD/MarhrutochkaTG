@@ -2508,16 +2508,17 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
     """Начало процесса поиска рейсов с выбором направления"""
     # Создаем клавиатуру для выбора типа поиска
     keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("�️ Минск → Островец", callback_data="search_dir_minsk_ostrovets")],
+        [InlineKeyboardButton("🏘️ Островец → Минск", callback_data="search_dir_ostrovets_minsk")],
         [InlineKeyboardButton("🎯 Выбрать города по отдельности", callback_data="search_by_cities")],
-        [InlineKeyboardButton("🛣️ Выбрать готовые направления", callback_data="search_by_directions")],
         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
     ])
     
     if update.message:
         await update.message.reply_text(
-            "🔍 **Как вы хотите искать маршрут?**\n\n"
-            "🎯 **По отдельности** - сначала выберите откуда, потом куда\n"
-            "🛣️ **Готовые направления** - выберите из списка популярных маршрутов",
+            "🔍 **Выберите маршрут для поиска:**\n\n"
+            "�️🏘️ **Популярные направления** - быстрый доступ к самым популярным маршрутам\n"
+            "🎯 **По отдельности** - выберите откуда и куда, включая Сморгонь",
             parse_mode='Markdown',
             reply_markup=keyboard
         )
@@ -2525,9 +2526,9 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
         query = update.callback_query
         await safe_edit_message(
                 query,
-            "🔍 **Как вы хотите искать маршрут?**\n\n"
-            "🎯 **По отдельности** - сначала выберите откуда, потом куда\n"
-            "🛣️ **Готовые направления** - выберите из списка популярных маршрутов",
+            "🔍 **Выберите маршрут для поиска:**\n\n"
+            "🏙️�️ **Популярные направления** - быстрый доступ к самым популярным маршрутам\n"
+            "🎯 **По отдельности** - выберите откуда и куда, включая Сморгонь",
             parse_mode='Markdown',
             reply_markup=keyboard
         )
@@ -2733,7 +2734,7 @@ def format_routes_message(routes_data, date, direction='all'):
         
     elif direction == 'ostrovets_minsk':
         parts.extend(format_route_section(ostrovets_to_minsk, "Островец → Минск"))
-        parts.append(f"\n� **Всего рейсов:** {len(ostrovets_to_minsk)}")
+        parts.append(f"\n📊 **Всего рейсов:** {len(ostrovets_to_minsk)}")
         
     elif direction == 'minsk_smorgon':
         parts.extend(format_route_section(minsk_to_smorgon, "Минск → Сморгонь", "🏙️"))
@@ -3117,10 +3118,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Поиск с выбором городов по отдельности
         await handle_search_by_cities(update, context)
     
-    elif data == "search_by_directions":
-        # Поиск по готовым направлениям
-        await handle_search_by_directions(update, context)
-    
     elif data.startswith("from_city_"):
         # Обработка выбора города отправления
         await handle_from_city_choice(update, context)
@@ -3146,6 +3143,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("search_dir_"):
         # Обработка выбора направления для поиска
         await handle_direction_choice(update, context)
+    
+    elif data.startswith("date_") and user_id in user_data_store and user_data_store[user_id].get('from_city') and user_data_store[user_id].get('to_city'):
+        # Поиск с выбранными городами
+        await handle_date_choice(update, context)
     
     elif data.startswith("date_") and context.user_data.get('booking_mode'):
         # Обработка выбора даты для бронирования
