@@ -225,11 +225,23 @@ async def safe_answer_callback(query, text="", timeout=5):
     import asyncio
     
     try:
+        # Проверяем, был ли callback уже отвечен
+        if hasattr(query, '_answered') and query._answered:
+            logger.debug(f"Callback {query.id} уже был отвечен")
+            return
+            
         await asyncio.wait_for(query.answer(text), timeout=timeout)
+        # Помечаем как отвеченный
+        query._answered = True
+        
     except asyncio.TimeoutError:
         logger.error(f"⏰ Таймаут при ответе на callback ({timeout}s)")
     except Exception as e:
-        logger.error(f"Ошибка при ответе на callback: {e}")
+        # Игнорируем ошибки о том, что callback уже был отвечен
+        if "query is too old" in str(e).lower() or "invalid query id" in str(e).lower():
+            logger.debug(f"Callback query уже недействителен: {e}")
+        else:
+            logger.error(f"Ошибка при ответе на callback: {e}")
 
 async def safe_send_message(update_or_context, text: str, reply_markup=None, parse_mode=None, timeout=10):
     """Безопасная отправка сообщения с таймаутом"""
@@ -3364,6 +3376,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Обработчик меню аккаунта (бета)
         await handle_account_beta_menu(update, context)
     
+    # Проверяем callback data, которые должны обрабатываться ConversationHandler
+    elif data.startswith(("time_", "dir_", "confirm_", "back_to_time", "back_to_direction", "back_to_range")):
+        # Эти callback data должны обрабатываться ConversationHandler
+        # Если мы дошли сюда, значит ConversationHandler не в правильном состоянии
+        await safe_answer_callback(query, "⚠️ Состояние диалога было сброшено. Пожалуйста, начните заново.")
+        
+        # Возвращаем пользователя в главное меню
+        text = (
+            "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
+            "🛣️ **Направления:** Минск ⇄ Островец\n\n"
+            "💡 **Выберите действие:**"
+        )
+        
+        await safe_edit_message(
+                query,
+            text,
+            reply_markup=get_main_menu_keyboard(user_id),
+            parse_mode='Markdown'
+        )
+    
     else:
         await safe_answer_callback(query, "❓ Неизвестная команда")
 
@@ -4086,7 +4118,7 @@ def register_handlers(application):
             CallbackQueryHandler(cancel_conversation, pattern="^back_to_main$"),
             CommandHandler('start', start),
         ],
-        per_message=False,
+        per_message=True,
     )
 
     # Настройка ConversationHandler для входа через Requests
@@ -4106,7 +4138,7 @@ def register_handlers(application):
             CallbackQueryHandler(cancel_conversation, pattern="^back_to_main$"),
             CommandHandler('start', start),
         ],
-        per_message=False,
+        per_message=True,
     )
 
     # Настройка ConversationHandler для бронирования билетов
@@ -4133,7 +4165,7 @@ def register_handlers(application):
             CommandHandler('start', start),
             CallbackQueryHandler(cancel_conversation, pattern="^booking_cancel$"),
         ],
-        per_message=False,
+        per_message=True,
     )
 
     # Старый обработчик бронирования (переименовываем)
@@ -4154,7 +4186,7 @@ def register_handlers(application):
             CommandHandler('start', start),
             CallbackQueryHandler(cancel_conversation, pattern="^cancel_booking$"),
         ],
-        per_message=False,
+        per_message=True,
     )
 
     # Добавляем обработчики
