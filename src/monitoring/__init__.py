@@ -24,9 +24,17 @@ from .railway_logger_enhanced import RailwayLoggerEnhanced
 # Создаем экземпляр railway_logger для использования в bot.py
 railway_logger = None
 try:
+    # Безопасное создание директории перед инициализацией
+    import os
+    from pathlib import Path
+    logs_dir = Path('data/logs')
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    
     railway_logger = RailwayLoggerEnhanced().logger
-except Exception:
-    railway_logger = None
+except Exception as e:
+    import logging
+    logging.warning(f"Failed to initialize RailwayLoggerEnhanced: {e}")
+    railway_logger = logging.getLogger("MarshrutochkaTG")
 
 __all__ = [
     'crash_handler',

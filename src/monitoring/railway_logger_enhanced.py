@@ -21,7 +21,7 @@ class RailwayLoggerEnhanced:
         self.name = name
         self.is_railway = bool(os.getenv('RAILWAY_SERVICE_NAME'))
         self.logs_dir = Path('data/logs')
-        self.logs_dir.mkdir(exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
         
         # Настраиваем логгер
         self.logger = logging.getLogger(name)

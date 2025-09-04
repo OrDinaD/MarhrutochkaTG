@@ -7,15 +7,12 @@ from datetime import datetime
 import traceback
 
 try:
-    from .railway_logger import RailwayLogger
+    from .railway_logger_enhanced import RailwayLoggerEnhanced as RailwayLogger
 except ImportError:
-    try:
-        from .railway_logger_enhanced import RailwayLoggerEnhanced as RailwayLogger
-    except ImportError:
-        # Заглушка если модуль недоступен
-        class RailwayLogger:
-            def __init__(self, *args, **kwargs):
-                self.logger = logging.getLogger(__name__)
+    # Заглушка если модуль недоступен
+    class RailwayLogger:
+        def __init__(self, *args, **kwargs):
+            self.logger = logging.getLogger(__name__)
 
 class TelegramLogHandler(logging.Handler):
     def __init__(self, bot_token, chat_id):
