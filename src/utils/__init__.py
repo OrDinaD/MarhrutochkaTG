@@ -3,7 +3,6 @@
 """
 
 from .parser import FinalMarshrutochkaParser
-from .auto_booking import AutoBookingManager
 
 # Добавляем недостающие функции как заглушки
 def parse_route_data(data):
@@ -41,6 +40,5 @@ __all__ = [
     'parse_route_data',
     'parse_schedule_data', 
     'format_routes_message',
-    'format_route_details',
-    'AutoBookingManager'
+    'format_route_details'
 ]
