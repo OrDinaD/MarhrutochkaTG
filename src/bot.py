@@ -80,6 +80,66 @@ def safe_log_admin(message: str, data: dict = None, level: str = "info"):
     if hasattr(logger, 'admin_action'):
         logger.admin_action(message, data or {}, level=level)
     else:
+        getattr(logger, level, logger.info)(f"👨‍💻 {message}")
+
+# Глобальный мониторинг состояний callback queries
+active_callbacks = {}  # {user_id: {'query_id': str, 'start_time': datetime, 'handler': str}}
+callback_timeout_seconds = 45  # Таймаут для застрявших callbacks
+
+async def track_callback_start(user_id: int, query_id: str, handler_name: str):
+    """Отслеживание начала callback обработки"""
+    active_callbacks[user_id] = {
+        'query_id': query_id,
+        'start_time': datetime.now(),
+        'handler': handler_name
+    }
+    logger.info(f"🔄 [{user_id}] Начало callback: {handler_name} (ID: {query_id})")
+
+async def track_callback_end(user_id: int):
+    """Отслеживание окончания callback обработки"""
+    if user_id in active_callbacks:
+        callback_info = active_callbacks.pop(user_id)
+        duration = (datetime.now() - callback_info['start_time']).total_seconds()
+        logger.info(f"✅ [{user_id}] Завершен callback: {callback_info['handler']} ({duration:.2f}s)")
+
+async def cleanup_stuck_callbacks():
+    """Очистка застрявших callback handlers"""
+    current_time = datetime.now()
+    stuck_users = []
+    
+    for user_id, callback_info in active_callbacks.items():
+        duration = (current_time - callback_info['start_time']).total_seconds()
+        if duration > callback_timeout_seconds:
+            stuck_users.append(user_id)
+            logger.warning(f"⚠️ [{user_id}] Застрявший callback: {callback_info['handler']} ({duration:.2f}s)")
+    
+    for user_id in stuck_users:
+        active_callbacks.pop(user_id, None)
+        logger.info(f"🧹 [{user_id}] Принудительная очистка застрявшего callback")
+
+async def emergency_conversation_reset(user_id: int, context: ContextTypes.DEFAULT_TYPE):
+    """Экстренный сброс состояния разговора для пользователя"""
+    try:
+        # Очищаем все состояния пользователя
+        context.user_data.clear()
+        
+        # Очищаем из глобального хранилища
+        if user_id in user_data_store:
+            del user_data_store[user_id]
+        
+        # Очищаем callback tracking
+        active_callbacks.pop(user_id, None)
+        
+        logger.warning(f"🚨 [{user_id}] Экстренный сброс состояния conversation")
+        
+    except Exception as e:
+        logger.error(f"❌ [{user_id}] Ошибка при экстренном сбросе: {e}")
+
+def safe_log_admin(message: str, data: dict = None, level: str = "info"):
+    """Безопасное логирование действий админа"""
+    if hasattr(logger, 'admin_action'):
+        logger.admin_action(message, data or {}, level=level)
+    else:
         getattr(logger, level, logger.info)(f"👤 {message}")
 
 # Игнорируем предупреждения от python-telegram-bot о per_message
@@ -110,33 +170,170 @@ application = None  # will hold the Application instance
 admin_panel = None  # Административная панель
 
 # Вспомогательная функция для безопасного редактирования сообщений
-async def safe_edit_message(query_or_update, text: str, reply_markup=None, parse_mode=None):
-    """Безопасное редактирование сообщения с обработкой ошибки 'Message is not modified'"""
+async def safe_edit_message(query_or_update, text: str, reply_markup=None, parse_mode=None, timeout=10):
+    """Безопасное редактирование сообщения с обработкой ошибок и таймаутом"""
+    import asyncio
+    
     try:
-        if hasattr(query_or_update, 'edit_message_text'):
-            # Это callback_query
-            await query_or_update.edit_message_text(
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-        elif hasattr(query_or_update, 'callback_query'):
-            # Это update с callback_query
-            await query_or_update.callback_query.edit_message_text(
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
+        # Добавляем таймаут для предотвращения зависания
+        async def _edit_message():
+            if hasattr(query_or_update, 'edit_message_text'):
+                # Это callback_query
+                await query_or_update.edit_message_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+            elif hasattr(query_or_update, 'callback_query'):
+                # Это update с callback_query
+                await query_or_update.callback_safe_edit_message(
+                query,
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+        
+        # Выполняем с таймаутом
+        await asyncio.wait_for(_edit_message(), timeout=timeout)
+        
+    except asyncio.TimeoutError:
+        logger.error(f"⏰ Таймаут при редактировании сообщения ({timeout}s)")
+        # Пытаемся отправить простое сообщение вместо редактирования
+        try:
+            if hasattr(query_or_update, 'message'):
+                await query_or_update.message.reply_text("⚠️ Загрузка...")
+        except:
+            pass
+            
     except BadRequest as e:
         if "Message is not modified" in str(e):
             logger.debug(f"Сообщение не изменилось для пользователя, пропускаем редактирование")
             return
+        elif "Message to edit not found" in str(e):
+            logger.warning(f"Сообщение для редактирования не найдено")
+            return
         else:
-            logger.error(f"Ошибка при редактировании сообщения: {e}")
-            raise e
+            logger.error(f"Ошибка BadRequest при редактировании сообщения: {e}")
+            # Не перебрасываем ошибку, чтобы не блокировать бота
+            
     except Exception as e:
         logger.error(f"Неожиданная ошибка при редактировании сообщения: {e}")
-        raise e
+        # Не перебрасываем ошибку, чтобы не блокировать бота
+
+async def safe_answer_callback(query, text="", timeout=5):
+    """Безопасный ответ на callback query с таймаутом"""
+    import asyncio
+    
+    try:
+        await asyncio.wait_for(query.answer(text), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error(f"⏰ Таймаут при ответе на callback ({timeout}s)")
+    except Exception as e:
+        logger.error(f"Ошибка при ответе на callback: {e}")
+
+async def safe_send_message(update_or_context, text: str, reply_markup=None, parse_mode=None, timeout=10):
+    """Безопасная отправка сообщения с таймаутом"""
+    import asyncio
+    
+    try:
+        async def _send_message():
+            if hasattr(update_or_context, 'message'):
+                await update_or_context.message.reply_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+            elif hasattr(update_or_context, 'send_message'):
+                await update_or_context.send_message(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+                
+        await asyncio.wait_for(_send_message(), timeout=timeout)
+        
+    except asyncio.TimeoutError:
+        logger.error(f"⏰ Таймаут при отправке сообщения ({timeout}s)")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке сообщения: {e}")
+
+def callback_handler_protection(timeout=30):
+    """Улучшенный декоратор для защиты callback handlers от зависания"""
+    def decorator(func):
+        import asyncio
+        import functools
+        
+        @functools.wraps(func)
+        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            query = update.callback_query
+            user_id = update.effective_user.id
+            handler_name = func.__name__
+            
+            try:
+                # Проверяем на застрявшие callbacks для этого пользователя
+                if user_id in active_callbacks:
+                    old_callback = active_callbacks[user_id]
+                    duration = (datetime.now() - old_callback['start_time']).total_seconds()
+                    if duration > 10:  # Если предыдущий callback висит больше 10 секунд
+                        logger.warning(f"⚠️ [{user_id}] Прерываем застрявший callback: {old_callback['handler']}")
+                        await emergency_conversation_reset(user_id, context)
+                
+                # Отслеживаем начало нового callback
+                await track_callback_start(user_id, query.id, handler_name)
+                
+                # Сразу отвечаем на callback чтобы убрать "загрузка"
+                await safe_answer_callback(query, "")
+                
+                # Выполняем основную функцию с таймаутом
+                result = await asyncio.wait_for(func(update, context), timeout=timeout)
+                
+                # Отслеживаем успешное завершение
+                await track_callback_end(user_id)
+                logger.info(f"✅ [{user_id}] Callback обработан успешно: {handler_name}")
+                return result
+                
+            except asyncio.TimeoutError:
+                await track_callback_end(user_id)
+                logger.error(f"⏰ [{user_id}] Таймаут callback handler ({timeout}s): {handler_name}")
+                
+                # Экстренный сброс состояния
+                await emergency_conversation_reset(user_id, context)
+                
+                # Пытаемся вернуть пользователя в главное меню
+                try:
+                    await safe_edit_message(
+                        query,
+                        "⚠️ **Превышено время ожидания**\n\nПроизведен сброс состояния. Возвращаемся в главное меню...",
+                        reply_markup=get_main_menu_keyboard(user_id),
+                        parse_mode='Markdown'
+                    )
+                except:
+                    pass
+                    
+                return ConversationHandler.END
+                
+            except Exception as e:
+                await track_callback_end(user_id)
+                logger.error(f"❌ [{user_id}] Ошибка в callback handler {handler_name}: {e}", exc_info=True)
+                
+                # Экстренный сброс состояния при ошибке
+                await emergency_conversation_reset(user_id, context)
+                
+                # Пытаемся вернуть пользователя в главное меню
+                try:
+                    await safe_edit_message(
+                        query,
+                        "❌ **Произошла ошибка**\n\nПроизведен сброс состояния. Возвращаемся в главное меню...",
+                        reply_markup=get_main_menu_keyboard(user_id),
+                        parse_mode='Markdown'
+                    )
+                except:
+                    pass
+                    
+                return ConversationHandler.END
+                
+        return wrapper
+    return decorator
 
 # Создаем директории для данных
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
@@ -471,10 +668,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         parse_mode='Markdown'
     )
 
+@callback_handler_protection(timeout=30)
 async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик главного меню - универсальный для всех conversation"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     user_id = query.from_user.id
 
     # Очищаем состояние пользователя из хранилища
@@ -490,7 +688,8 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💡 **Выберите действие:**"
     )
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text,
         reply_markup=get_main_menu_keyboard(user_id),
         parse_mode='Markdown'
@@ -524,7 +723,8 @@ async def my_monitors(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         if update.callback_query:
-            await update.callback_query.edit_message_text(
+            await safe_edit_message(
+                update.callback_query,
                 message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
@@ -547,7 +747,8 @@ async def my_monitors(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         if update.callback_query:
-            await update.callback_query.edit_message_text(
+            await safe_edit_message(
+                update.callback_query,
                 message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
@@ -583,7 +784,8 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         if update.callback_query:
-            await update.callback_query.edit_message_text(
+            await safe_edit_message(
+                update.callback_query,
                 message_text,
                 parse_mode='Markdown'
             )
@@ -596,7 +798,8 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_text = "ℹ️ **Мониторинг не был активен**"
         
         if update.callback_query:
-            await update.callback_query.edit_message_text(
+            await safe_edit_message(
+                update.callback_query,
                 message_text,
                 parse_mode='Markdown'
             )
@@ -628,7 +831,8 @@ async def start_monitoring_conversation(update: Update, context: ContextTypes.DE
     
     # Проверяем, это callback query или обычное сообщение
     if update.callback_query:
-        await update.callback_query.edit_message_text(
+        await safe_edit_message(
+                update.callback_query,
             text,
             reply_markup=get_date_keyboard(),
             parse_mode='Markdown'
@@ -642,10 +846,11 @@ async def start_monitoring_conversation(update: Update, context: ContextTypes.DE
     
     return CHOOSE_DATE
 
+@callback_handler_protection(timeout=20)
 async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора даты"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     data = query.data
@@ -661,7 +866,8 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
             from_city = user_data['from_city']
             to_city = user_data['to_city']
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 f"🔍 **Поиск маршрутов...**\n\n"
                 f"📍 **Маршрут:** {from_city} → {to_city}\n"
                 f"📅 **Дата:** {selected_date}",
@@ -673,7 +879,8 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return ConversationHandler.END
         else:
             # Обычный поток - выбираем направление
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 f"✅ **Выбрана дата:** {selected_date}\n\n"
                 "🛣️ **Шаг 2:** Выберите направление:",
                 reply_markup=get_direction_keyboard(),
@@ -683,7 +890,8 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return CHOOSE_DIRECTION
     
     elif data == "custom_date":
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "📅 **Введите дату в формате YYYY-MM-DD**\n\n"
             "Например: `2025-01-15`\n\n"
             "Или нажмите кнопку ниже для возврата:",
@@ -707,7 +915,8 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [InlineKeyboardButton("❓ Помощь", callback_data="help")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
             "🛣️ **Направления:** Минск ⇄ Островец\n"
             "🌐 **Источник:** билет.маршруточка.бел\n\n"
@@ -728,8 +937,9 @@ async def start_login_requests(update: Update, context: ContextTypes.DEFAULT_TYP
         del user_data_store[user_id]
     context.user_data.clear()
     
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text(
+    await safe_answer_callback(update.callback_query)
+    await safe_edit_message(
+                update.callback_query,
         text="🔐 **ВХОД В АККАУНТ МАРШРУТОЧКИ**\n\n"
         "📱 Введите ваш номер телефона в формате:\n"
         "`+375XXXXXXXXX` или `375XXXXXXXXX`\n\n"
@@ -870,8 +1080,9 @@ async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if not bot_auth_manager.is_authenticated(user_id):
         if update.callback_query:
-            await update.callback_query.answer("❌ Сначала нужно войти в аккаунт!", show_alert=True)
-            await update.callback_query.edit_message_text(
+            await safe_answer_callback(update.callback_query, "❌ Сначала нужно войти в аккаунт!", show_alert=True)
+            await safe_edit_message(
+                update.callback_query,
                 "🔒 **Доступ запрещен**\n\n"
                 "Для просмотра профиля необходимо войти в аккаунт.",
                 reply_markup=InlineKeyboardMarkup([[
@@ -883,7 +1094,7 @@ async def get_profile_requests(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if update.callback_query:
-        await update.callback_query.answer("📋 Загружаю профиль...")
+        await safe_answer_callback(update.callback_query, "📋 Загружаю профиль...")
 
     try:
         # Загружаем данные пользователя из БД
@@ -984,8 +1195,9 @@ async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if not bot_auth_manager.is_authenticated(user_id):
         if update.callback_query:
-            await update.callback_query.answer("❌ Сначала нужно войти в аккаунт!", show_alert=True)
-            await update.callback_query.edit_message_text(
+            await safe_answer_callback(update.callback_query, "❌ Сначала нужно войти в аккаунт!", show_alert=True)
+            await safe_edit_message(
+                update.callback_query,
                 "🔒 **Доступ запрещен**\n\n"
                 "Для просмотра бронирований необходимо войти в аккаунт.",
                 reply_markup=InlineKeyboardMarkup([[
@@ -997,7 +1209,7 @@ async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if update.callback_query:
-        await update.callback_query.answer("🎫 Загружаю бронирования...")
+        await safe_answer_callback(update.callback_query, "🎫 Загружаю бронирования...")
 
     try:
         # Получаем бронирования через новый менеджер
@@ -1023,7 +1235,8 @@ async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYP
         ]
         
         if update.callback_query:
-            await update.callback_query.edit_message_text(
+            await safe_edit_message(
+                update.callback_query,
                 message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
@@ -1045,7 +1258,8 @@ async def get_tickets_requests(update: Update, context: ContextTypes.DEFAULT_TYP
         ]
         
         if update.callback_query:
-            await update.callback_query.edit_message_text(
+            await safe_edit_message(
+                update.callback_query,
                 error_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
@@ -1067,8 +1281,9 @@ async def logout_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if success:
             if update.callback_query:
-                await update.callback_query.answer("✅ Выход выполнен")
-                await update.callback_query.edit_message_text(
+                await safe_answer_callback(update.callback_query, "✅ Выход выполнен")
+                await safe_edit_message(
+                update.callback_query,
                     "🚪 **ВЫХОД ВЫПОЛНЕН УСПЕШНО!**\n\n"
                     "✅ Вы вышли из аккаунта\n"
                     "🗑️ Сессия удалена\n"
@@ -1087,18 +1302,20 @@ async def logout_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Пользователь {user_id} вышел из аккаунта")
         else:
             if update.callback_query:
-                await update.callback_query.answer("❌ Ошибка при выходе", show_alert=True)
+                await safe_answer_callback(update.callback_query, "❌ Ошибка при выходе", show_alert=True)
             logger.error(f"Ошибка при выходе пользователя {user_id}")
     else:
         if update.callback_query:
-            await update.callback_query.answer("❌ Вы не были авторизованы", show_alert=True)
-            await update.callback_query.edit_message_text(
+            await safe_answer_callback(update.callback_query, "❌ Вы не были авторизованы", show_alert=True)
+            await safe_edit_message(
+                update.callback_query,
                 "ℹ️ **Вы не были авторизованы в системе**\n\n"
                 "💡 Используйте кнопку \"🔒 Войти в аккаунт\" для входа",
                 reply_markup=get_main_menu_keyboard(user_id),
                 parse_mode='Markdown'
             )
 
+@callback_handler_protection(timeout=20)
 async def handle_bookings_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик фильтрации бронирований по статусу"""
     query = update.callback_query
@@ -1153,7 +1370,8 @@ async def handle_bookings_filter(update: Update, context: ContextTypes.DEFAULT_T
             InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
         ])
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             message_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -1169,7 +1387,8 @@ async def handle_bookings_filter(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             error_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -1177,10 +1396,11 @@ async def handle_bookings_filter(update: Update, context: ContextTypes.DEFAULT_T
 
 # ==================== MONITORING HANDLERS ====================
 
+@callback_handler_protection(timeout=20)
 async def handle_monitoring_direction_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора направления для мониторинга"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     data = query.data
@@ -1195,7 +1415,8 @@ async def handle_monitoring_direction_choice(update: Update, context: ContextTyp
             "both": "Оба направления"
         }.get(direction, direction)
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             f"✅ **Направление:** {direction_text}\n\n"
             "⏰ **Шаг 3:** Что важнее для вас?",
             reply_markup=get_time_type_keyboard(),
@@ -1206,7 +1427,8 @@ async def handle_monitoring_direction_choice(update: Update, context: ContextTyp
         
     elif data == "back_to_date":
         # Возвращаемся к выбору даты
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "📅 **Шаг 1:** Выберите дату поездки:",
             reply_markup=get_date_keyboard(),
             parse_mode='Markdown'
@@ -1216,10 +1438,11 @@ async def handle_monitoring_direction_choice(update: Update, context: ContextTyp
     
     return CHOOSE_DIRECTION
 
+@callback_handler_protection(timeout=20)
 async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора типа времени"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     data = query.data
@@ -1240,7 +1463,8 @@ async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_
             
             config_text = format_monitor_config(user_data_store[user_id])
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
                 "❓ **Запустить мониторинг?**",
                 reply_markup=InlineKeyboardMarkup([
@@ -1253,7 +1477,8 @@ async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_
             
             return CONFIRM_MONITORING
         else:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 f"✅ **Критерий:** {time_text}\n\n"
                 "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
                 reply_markup=get_time_range_keyboard(time_type),
@@ -1269,7 +1494,8 @@ async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_
             "both": "Оба направления"
         }.get(user_data_store[user_id].get('direction', ''), user_data_store[user_id].get('direction', ''))
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             f"✅ **Направление:** {direction_text}\n\n"
             "🛣️ **Шаг 2:** Выберите направление:",
             reply_markup=get_direction_keyboard(),
@@ -1280,10 +1506,11 @@ async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_
     
     return CHOOSE_TIME_TYPE
 
+@callback_handler_protection(timeout=20)
 async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора диапазона времени"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     data = query.data
@@ -1291,7 +1518,8 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
     if data == "back_to_range_list":
         # Возвращаемся к выбору диапазона из списка
         time_type = user_data_store[user_id].get('time_type', 'departure')
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
             reply_markup=get_time_range_keyboard(time_type),
             parse_mode='Markdown'
@@ -1301,7 +1529,8 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
     elif data == "back_to_time_range":
         # Возвращаемся к выбору диапазона времени
         time_type = user_data_store[user_id].get('time_type', 'departure')
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
             reply_markup=get_time_range_keyboard(time_type),
             parse_mode='Markdown'
@@ -1312,7 +1541,8 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
         time_range = data.replace("range_", "")
         
         if time_range == "custom":
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "🕐 **Введите диапазон времени в формате ЧЧ:ММ-ЧЧ:ММ**\n\n"
                 "Примеры:\n"
                 "• `07:00-09:00` - с 7 до 9 утра\n"
@@ -1330,7 +1560,8 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
             
             config_text = format_monitor_config(user_data_store[user_id])
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
                 "❓ **Запустить мониторинг?**",
                 reply_markup=InlineKeyboardMarkup([
@@ -1343,10 +1574,11 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
             
             return CONFIRM_MONITORING
 
+@callback_handler_protection(timeout=25)
 async def handle_monitoring_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка подтверждения мониторинга"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     data = query.data
@@ -1374,7 +1606,8 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
                 data=user_id
             )
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🎉 **Мониторинг запущен!**\n\n"
             f"{format_monitor_config(config)}\n\n"
             "✅ Я буду проверять наличие мест каждые 5 минут\n"
@@ -1389,7 +1622,8 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
         return ConversationHandler.END
     
     elif data == "confirm_no":
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🔧 **Настройка мониторинга**\n\n"
             "Выберите, что хотите изменить:",
             reply_markup=InlineKeyboardMarkup([
@@ -1685,10 +1919,11 @@ async def send_monitoring_notification(
 
 # ==================== NEW SEARCH FUNCTIONS ====================
 
+@callback_handler_protection(timeout=15)
 async def handle_direction_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора направления для поиска"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     data = query.data
@@ -1702,7 +1937,8 @@ async def handle_direction_choice(update: Update, context: ContextTypes.DEFAULT_
     # Показываем календарь для выбора даты
     keyboard = get_date_keyboard()
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         "📅 **Выберите дату для поиска рейсов:**",
         parse_mode='Markdown',
         reply_markup=keyboard
@@ -1710,10 +1946,11 @@ async def handle_direction_choice(update: Update, context: ContextTypes.DEFAULT_
     
     return SEARCH_DATE
 
+@callback_handler_protection(timeout=30)
 async def handle_search_with_direction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка поиска с выбранным направлением и датой"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     date = query.data.replace('date_', '')
@@ -1725,7 +1962,8 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
         from_city = user_data.get('from_city')
         to_city = user_data.get('to_city')
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             f"🔍 **Ищу рейсы {from_city} → {to_city} на {date}...**",
             parse_mode='Markdown'
         )
@@ -1799,7 +2037,8 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
             ]
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 message,
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard_buttons)
@@ -1807,7 +2046,8 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
             
         except Exception as e:
             logger.error(f"Ошибка поиска рейсов: {e}")
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "❌ **Ошибка поиска рейсов**\n\nПопробуйте позже.",
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup([
@@ -1821,7 +2061,8 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
     # Старая логика для готовых направлений
     direction = user_data.get('search_direction', 'all')
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         f"🔍 **Ищу рейсы на {date}...**",
         parse_mode='Markdown'
     )
@@ -1836,7 +2077,8 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
             [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
         ])
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             message,
             parse_mode='Markdown',
             reply_markup=webapp_keyboard
@@ -1844,7 +2086,8 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
         
     except Exception as e:
         logger.error(f"Ошибка поиска рейсов: {e}")
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "❌ **Ошибка поиска рейсов**\n\nПопробуйте позже.",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
@@ -1938,7 +2181,8 @@ async def perform_route_search(query, user_id: int, from_city: str, to_city: str
             [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             message,
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1946,7 +2190,8 @@ async def perform_route_search(query, user_id: int, from_city: str, to_city: str
         
     except Exception as e:
         logger.error(f"Ошибка поиска маршрутов {from_city} → {to_city}: {e}")
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             f"❌ **Ошибка поиска рейсов {from_city} → {to_city}**\n\n"
             "Попробуйте позже или выберите другое направление.",
             parse_mode='Markdown',
@@ -2180,6 +2425,54 @@ async def system_health_command(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка проверки здоровья системы: {str(e)}")
 
+async def emergency_reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Экстренный сброс состояния пользователя"""
+    user_id = update.effective_user.id
+    
+    try:
+        # Выполняем экстренный сброс
+        await emergency_conversation_reset(user_id, context)
+        
+        # Показываем статистику до очистки
+        had_active_callback = user_id in active_callbacks
+        had_user_data = bool(context.user_data)
+        had_stored_data = user_id in user_data_store
+        
+        reset_info = []
+        if had_active_callback:
+            reset_info.append("📞 Активный callback")
+        if had_user_data:
+            reset_info.append("💾 Данные context")
+        if had_stored_data:
+            reset_info.append("🗃️ Сохраненные данные")
+        
+        if reset_info:
+            status_text = "Очищено: " + ", ".join(reset_info)
+        else:
+            status_text = "Состояние уже было чистым"
+            
+        text = (
+            "🚨 **Экстренный сброс выполнен**\n\n"
+            f"👤 **Пользователь:** {user_id}\n"
+            f"🧹 **Статус:** {status_text}\n\n"
+            "✅ Все состояния сброшены. Бот готов к работе!"
+        )
+        
+        # Отправляем с главным меню
+        await update.message.reply_text(
+            text,
+            reply_markup=get_main_menu_keyboard(user_id),
+            parse_mode='Markdown'
+        )
+        
+        logger.info(f"🚨 [{user_id}] Экстренный сброс выполнен по команде /reset")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в emergency_reset_command: {e}")
+        await update.message.reply_text(
+            "❌ Ошибка при выполнении экстренного сброса. Попробуйте перезапустить бота командой /start"
+        )
+
 async def monitoring_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /monitoring"""
     user_id = update.effective_user.id
@@ -2230,7 +2523,8 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
         )
     else:
         query = update.callback_query
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🔍 **Как вы хотите искать маршрут?**\n\n"
             "🎯 **По отдельности** - сначала выберите откуда, потом куда\n"
             "🛣️ **Готовые направления** - выберите из списка популярных маршрутов",
@@ -2241,7 +2535,7 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
 async def handle_search_by_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало поиска с выбором городов по отдельности"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     # Создаем клавиатуру для выбора города отправления
     keyboard = InlineKeyboardMarkup([
@@ -2251,7 +2545,8 @@ async def handle_search_by_cities(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton("🔙 Назад", callback_data="search_routes")]
     ])
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         "📍 **Выберите город отправления:**",
         parse_mode='Markdown',
         reply_markup=keyboard
@@ -2260,7 +2555,7 @@ async def handle_search_by_cities(update: Update, context: ContextTypes.DEFAULT_
 async def handle_from_city_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора города отправления"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     from_city = query.data.replace('from_city_', '')
@@ -2286,7 +2581,8 @@ async def handle_from_city_choice(update: Update, context: ContextTypes.DEFAULT_
     keyboard_buttons.append([InlineKeyboardButton("🔙 Назад", callback_data="search_by_cities")])
     keyboard = InlineKeyboardMarkup(keyboard_buttons)
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         f"📍 **Откуда:** {from_city}\n"
         f"📍 **Выберите город назначения:**",
         parse_mode='Markdown',
@@ -2296,7 +2592,7 @@ async def handle_from_city_choice(update: Update, context: ContextTypes.DEFAULT_
 async def handle_to_city_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора города назначения"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     user_id = query.from_user.id
     to_city = query.data.replace('to_city_', '')
@@ -2306,7 +2602,8 @@ async def handle_to_city_choice(update: Update, context: ContextTypes.DEFAULT_TY
     from_city = user_data.get('from_city')
     
     if not from_city:
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "❌ Ошибка: город отправления не выбран. Попробуйте снова.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔄 Начать заново", callback_data="search_routes")
@@ -2321,7 +2618,8 @@ async def handle_to_city_choice(update: Update, context: ContextTypes.DEFAULT_TY
     # Показываем календарь для выбора даты
     keyboard = get_date_keyboard()
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         f"📍 **Маршрут:** {from_city} → {to_city}\n"
         f"📅 **Выберите дату для поиска рейсов:**",
         parse_mode='Markdown',
@@ -2333,7 +2631,7 @@ async def handle_to_city_choice(update: Update, context: ContextTypes.DEFAULT_TY
 async def handle_search_by_directions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка поиска по готовым направлениям (старый метод)"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     # Создаем клавиатуру для выбора направления
     keyboard = InlineKeyboardMarkup([
@@ -2348,7 +2646,8 @@ async def handle_search_by_directions(update: Update, context: ContextTypes.DEFA
         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
     ])
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         "🛣️ **Выберите направление для поиска:**\n\n"
         "🚌 **Основные маршруты:**\n"
         "• Минск ↔ Островец\n\n"
@@ -2698,7 +2997,8 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     routes = context.user_data.get('available_routes', [])
     
     if route_id is None or not route_id.isdigit() or int(route_id) >= len(routes):
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "❌ Ошибка: не удалось найти выбранный маршрут",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]])
         )
@@ -2760,7 +3060,7 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Общий обработчик кнопок"""
     query = update.callback_query
-    await query.answer()
+    await safe_answer_callback(query)
     
     # Sanitize callback data to prevent injection attacks
     data = security.sanitize_callback_data(query.data)
@@ -2770,7 +3070,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Начинаем настройку мониторинга
         user_data_store[user_id] = {}
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🔔 **Настройка мониторинга рейсов**\n\n"
             "Я буду проверять появление мест каждые 5 минут и уведомлять вас!\n\n"
             "📅 **Шаг 1:** Выберите дату поездки:",
@@ -2795,13 +3096,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "✅ **Мониторинг остановлен**\n\n"
                 "💡 Для настройки нового мониторинга используйте /start",
                 parse_mode='Markdown'
             )
         else:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "ℹ️ **Мониторинг не был активен**",
                 parse_mode='Markdown'
             )
@@ -2886,7 +3189,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "💡 **Выберите действие:**"
         )
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             text,
             reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
@@ -2911,7 +3215,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Показываем форму для ввода данных пассажира
         keyboard = [[InlineKeyboardButton("🔙 Назад к поиску", callback_data="book_ticket")]]
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "👤 Введите данные пассажира:\n"
             "Формат: Фамилия Имя Отчество\n\n"
             "Например: Иванов Иван Иванович",
@@ -2926,7 +3231,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "booking_cancel":
         # Отмена бронирования
         text = get_greeting_message(query.from_user)
-        await query.edit_message_text(text, reply_markup=get_main_menu_keyboard(user_id))
+        await safe_edit_message(
+                query,text, reply_markup=get_main_menu_keyboard(user_id))
     
     elif data == "profile_requests":
         # Вызываем обработчик профиля
@@ -2955,7 +3261,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📱 Проверить сейчас", callback_data="check_now")]
             ]
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 f"📊 **Активный мониторинг:**\n\n{config_text}\n\n"
                 f"⏰ **Создан:** {config.get('created_at', 'н/д')[:19].replace('T', ' ')}\n\n"
                 "💡 **Действия:**",
@@ -2968,7 +3275,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
             ]
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "📊 **Мониторинг не активен**\n\n"
                 "💡 Хотите настроить автоматическую проверку рейсов?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -2977,7 +3285,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "check_now":
         if user_id in active_monitors:
-            await query.answer("🔍 Проверяю рейсы...")
+            await safe_answer_callback(query, "🔍 Проверяю рейсы...")
             
             # Создаем фейковый job объект для check_routes_for_user
             class FakeJob:
@@ -2992,7 +3300,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fake_context = FakeContext(query.bot)
             await check_routes_for_user(fake_context)
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "✅ **Проверка завершена**\n\n"
                 "Если найдены подходящие рейсы, вы получите уведомление.",
                 reply_markup=InlineKeyboardMarkup([[
@@ -3002,7 +3311,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
         else:
-            await query.answer("❌ Мониторинг не активен")
+            await safe_answer_callback(query, "❌ Мониторинг не активен")
     
     elif data == "auto_booking":
         # Переход к автобронированию
@@ -3021,7 +3330,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_my_bookings(update, context)
     
     elif data == "auto_book_monitoring":
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🔔 **АВТОБРОНИРОВАНИЕ ПРИ МОНИТОРИНГЕ**\n\n"
             "🚧 Функция в разработке\n\n"
             "Эта функция позволит автоматически бронировать рейсы, "
@@ -3036,7 +3346,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "open_website":
         # Обработчик открытия сайта
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🌐 **Официальный сайт маршруточки**\n\n"
             "Вы можете посетить официальный сайт для бронирования билетов:\n\n"
             "🔗 **[билет.маршруточка.бел](https://билет.маршруточка.бел/)**\n\n"
@@ -3053,7 +3364,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_account_beta_menu(update, context)
     
     else:
-        await query.answer("❓ Неизвестная команда")
+        await safe_answer_callback(query, "❓ Неизвестная команда")
 
 # ==================== ACCOUNT BETA FUNCTIONS ====================
 
@@ -3063,7 +3374,8 @@ async def handle_account_beta_menu(update: Update, context: ContextTypes.DEFAULT
     user_id = query.from_user.id
     
     if not bot_auth_manager.is_authenticated(user_id):
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🔒 **Аккаунт недоступен**\n\n"
             "Для доступа к функциям аккаунта необходимо войти в систему.",
             reply_markup=InlineKeyboardMarkup([
@@ -3082,7 +3394,8 @@ async def handle_account_beta_menu(update: Update, context: ContextTypes.DEFAULT
         [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
     ]
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         "👤 **Аккаунт (бета)**\n\n"
         "🔐 **Вы авторизованы в системе**\n\n"
         "💡 **Доступные функции:**\n"
@@ -3104,7 +3417,8 @@ async def handle_auto_booking_menu(update: Update, context: ContextTypes.DEFAULT
     # пробуем legacy user_sessions (RequestsAuthManager). Иначе просим авторизоваться.
     legacy_ok = user_id in user_sessions
     if not bot_auth_manager.is_authenticated(user_id) and not legacy_ok:
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🔒 **Автобронирование недоступно**\n\n"
             "Для использования автобронирования необходимо войти в аккаунт (кнопка ниже).",
             reply_markup=InlineKeyboardMarkup([[
@@ -3122,7 +3436,8 @@ async def handle_auto_booking_menu(update: Update, context: ContextTypes.DEFAULT
         [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
     ]
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         "🤖 **АВТОБРОНИРОВАНИЕ РЕЙСОВ**\n\n"
         "🎯 Доступные функции:\n"
         "• Ручное бронирование конкретного рейса\n"
@@ -3140,10 +3455,10 @@ async def handle_my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     use_new = bot_auth_manager.is_authenticated(user_id)
     if not use_new and user_id not in user_sessions:
-        await query.answer("❌ Необходима авторизация")
+        await safe_answer_callback(query, "❌ Необходима авторизация")
         return
     
-    await query.answer("📋 Загружаю ваши бронирования...")
+    await safe_answer_callback(query, "📋 Загружаю ваши бронирования...")
     
     try:
         if use_new:
@@ -3199,7 +3514,8 @@ async def handle_my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             message_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -3207,7 +3523,8 @@ async def handle_my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     except Exception as e:
         logger.error(f"Ошибка получения бронирований: {e}")
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "❌ **Ошибка получения бронирований**\n\n"
             "Попробуйте позже или обратитесь к администратору.",
             reply_markup=InlineKeyboardMarkup([[
@@ -3224,10 +3541,11 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = query.from_user.id
     
     if not admin_panel or not admin_panel.is_admin(user_id):
-        await query.answer("❌ У вас нет прав администратора")
+        await safe_answer_callback(query, "❌ У вас нет прав администратора")
         return
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         "⚙️ **АДМИНИСТРАТИВНАЯ ПАНЕЛЬ**\n\n"
         "🔧 Добро пожаловать в админ-панель!\n"
         "Здесь вы можете управлять ботом и мониторить его работу.\n\n"
@@ -3242,7 +3560,7 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
     user_id = query.from_user.id
     
     if not admin_panel or not admin_panel.is_admin(user_id):
-        await query.answer("❌ У вас нет прав администратора")
+        await safe_answer_callback(query, "❌ У вас нет прав администратора")
         return
     
     if action == "admin_monitoring_stats":
@@ -3254,7 +3572,8 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             stats_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -3270,7 +3589,8 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             users_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -3285,7 +3605,8 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             logs_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -3300,7 +3621,8 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             settings_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -3308,7 +3630,8 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
     
     elif action == "admin_emergency":
         # Экстренные функции
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🚨 **ЭКСТРЕННЫЕ ФУНКЦИИ**\n\n"
             "⚠️ **ВНИМАНИЕ!** Эти функции могут повлиять на работу бота.\n"
             "Используйте их только при необходимости.\n\n"
@@ -3326,7 +3649,8 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             result,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -3341,7 +3665,8 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             result,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -3349,7 +3674,7 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
     
     elif action == "admin_export_data":
         # Экспорт данных
-        await query.answer("📤 Экспортирую данные...")
+        await safe_answer_callback(query, "📤 Экспортирую данные...")
         
         export_result = admin_panel.export_data(active_monitors, user_sessions)
         
@@ -3371,7 +3696,8 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
         ]
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             message_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -3491,7 +3817,8 @@ async def start_booking_conversation(update: Update, context: ContextTypes.DEFAU
     user_id = query.from_user.id
     
     if user_id not in user_sessions:
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🔒 **Бронирование недоступно**\n\n"
             "Для бронирования рейсов необходимо войти в аккаунт.",
             reply_markup=InlineKeyboardMarkup([[
@@ -3516,7 +3843,8 @@ async def start_booking_conversation(update: Update, context: ContextTypes.DEFAU
     
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_booking")])
     
-    await query.edit_message_text(
+    await safe_edit_message(
+                query,
         "🎫 **БРОНИРОВАНИЕ РЕЙСА**\n\n"
         "👥 Выберите количество пассажиров:\n\n"
         "💡 Максимальное количество пассажиров: 2",
@@ -3532,7 +3860,8 @@ async def handle_passenger_count(update: Update, context: ContextTypes.DEFAULT_T
     user_id = query.from_user.id
     
     if query.data == "cancel_booking":
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "❌ Бронирование отменено",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
@@ -3551,7 +3880,8 @@ async def handle_passenger_count(update: Update, context: ContextTypes.DEFAULT_T
             auth_manager = user_sessions[user_id]
             booking_manager = AutoBookingManager(auth_manager)
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "🔄 Загружаю доступные маршруты...",
                 parse_mode='Markdown'
             )
@@ -3586,7 +3916,8 @@ async def handle_passenger_count(update: Update, context: ContextTypes.DEFAULT_T
                 
                 keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_booking")])
                 
-                await query.edit_message_text(
+                await safe_edit_message(
+                query,
                     f"🛣️ **ДОСТУПНЫЕ МАРШРУТЫ**\n\n"
                     f"👥 Пассажиров: {passenger_count}\n"
                     f"📋 Найдено маршрутов: {len(routes)}\n\n"
@@ -3597,7 +3928,8 @@ async def handle_passenger_count(update: Update, context: ContextTypes.DEFAULT_T
                 
                 return CONFIRM_BOOKING
             else:
-                await query.edit_message_text(
+                await safe_edit_message(
+                query,
                     "❌ **Нет доступных маршрутов**\n\n"
                     "В данный момент нет доступных маршрутов для бронирования.\n"
                     "Попробуйте позже.",
@@ -3610,7 +3942,8 @@ async def handle_passenger_count(update: Update, context: ContextTypes.DEFAULT_T
                 
         except Exception as e:
             logger.error(f"Ошибка загрузки маршрутов: {e}")
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "❌ **Ошибка загрузки маршрутов**\n\n"
                 "Попробуйте позже или обратитесь к администратору.",
                 reply_markup=InlineKeyboardMarkup([[
@@ -3628,7 +3961,8 @@ async def handle_route_booking(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = query.from_user.id
     
     if query.data == "cancel_booking":
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "❌ Бронирование отменено",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")
@@ -3640,9 +3974,10 @@ async def handle_route_booking(update: Update, context: ContextTypes.DEFAULT_TYP
         route_id = query.data.replace("route_", "")
         passenger_count = context.user_data.get('passenger_count', 1)
         
-        await query.answer("🎫 Бронирую маршрут...")
+        await safe_answer_callback(query, "🎫 Бронирую маршрут...")
         
-        await query.edit_message_text(
+        await safe_edit_message(
+                query,
             "🔄 **ПРОЦЕСС БРОНИРОВАНИЯ**\n\n"
             "Пожалуйста, подождите...\n"
             "Выполняю бронирование маршрута.",
@@ -3694,7 +4029,8 @@ async def handle_route_booking(update: Update, context: ContextTypes.DEFAULT_TYP
                     [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
                 ]
             
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
@@ -3702,7 +4038,8 @@ async def handle_route_booking(update: Update, context: ContextTypes.DEFAULT_TYP
             
         except Exception as e:
             logger.error(f"Критическая ошибка бронирования: {e}")
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "❌ **КРИТИЧЕСКАЯ ОШИБКА**\n\n"
                 "Произошла непредвиденная ошибка при бронировании.\n"
                 "Попробуйте позже или обратитесь к администратору.",
@@ -3826,6 +4163,7 @@ def register_handlers(application):
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("recovery_history", recovery_history_command))
     application.add_handler(CommandHandler("system_health", system_health_command))
+    application.add_handler(CommandHandler("reset", emergency_reset_command))  # Экстренный сброс
     
     # Добавляем ConversationHandlers
     application.add_handler(monitoring_conv_handler)
@@ -3844,7 +4182,10 @@ def register_handlers(application):
 
 def main():
     """Главная функция запуска бота"""
-    global application, admin_panel
+    global application, admin_panel, bot_start_time
+    
+    # Записываем время запуска
+    bot_start_time = datetime.now()
     
     # Загружаем существующие мониторинги
     try:
@@ -3899,9 +4240,18 @@ def main():
         load_active_monitors()
         load_user_sessions()
         
+        # Добавляем фоновую задачу для очистки застрявших callbacks
+        job_queue.run_repeating(
+            cleanup_stuck_callbacks,
+            interval=30,  # Проверка каждые 30 секунд
+            first=10,     # Первый запуск через 10 секунд
+            name="cleanup_stuck_callbacks"
+        )
+        
         safe_log_bot("Данные восстановлены", {
             "monitors_count": len(active_monitors),
-            "sessions_count": len(user_sessions)
+            "sessions_count": len(user_sessions),
+            "callback_cleanup": "enabled"
         })
         
         # Восстанавливаем активные мониторинги
