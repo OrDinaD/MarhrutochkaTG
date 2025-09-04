@@ -40,7 +40,6 @@ try:
     from .monitoring import setup_logging, railway_logger, crash_handler, diagnostic_system, auto_recovery
     from .admin_panel import AdminPanel
     from .security import security
-    from .database import db_manager
     from .utils.keyboards import keyboard_factory
     from .utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback, safe_send_message, callback_handler_protection
     from .managers.user_manager import user_manager, UserManager
@@ -50,7 +49,6 @@ except ImportError:
     from monitoring import setup_logging, railway_logger, crash_handler, diagnostic_system, auto_recovery
     from admin_panel import AdminPanel
     from security import security
-    from database import db_manager
     from utils.keyboards import keyboard_factory
     from utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback, safe_send_message, callback_handler_protection
     from managers.user_manager import user_manager, UserManager
@@ -383,14 +381,9 @@ def save_user_sessions():
 def load_active_monitors():
     """Загрузка активных мониторингов через UserManager"""
     global user_manager
-    try:
-        # Инициализируем user_manager с db_manager
-        if 'db_manager' in globals():
-            user_manager.db_manager = db_manager
-        
-        # Загружаем мониторинги из БД динамически
-        user_manager.load_all_monitors_from_db()
-        logger.info("Мониторинги будут загружаться из БД динамически")
+    try:        
+        # Загружаем мониторинги из памяти
+        logger.info("Мониторинги загружаются из файловой системы")
         
     except Exception as e:
         logger.error(f"Не удалось загрузить мониторинги: {e}")
@@ -1031,9 +1024,6 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
         
         active_monitors[user_id] = config
         save_active_monitors()
-        
-        # Сохраняем мониторинг в БД
-        db_manager.save_monitor(user_id, config)
         
         # Добавляем задачу в планировщик
         if job_queue:
