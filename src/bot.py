@@ -1626,7 +1626,7 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
             "📱 Уведомления придут как только появятся подходящие рейсы\n\n"
             "💡 Используйте главное меню для управления:",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("� Главное меню", callback_data="back_to_main")
+                InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")
             ]]),
             parse_mode='Markdown'
         )
@@ -2769,7 +2769,7 @@ def format_routes_message(routes_data, date, direction='all'):
     elif direction == 'smorgon_ostrovets':
         parts.extend(format_route_section(smorgon_to_ostrovets, "Сморгонь → Островец", "🏘️"))
         if smorgon_to_ostrovets:
-            parts.append("\n� *Включены транзитные рейсы из Минска*")
+            parts.append("\n💡 *Включены транзитные рейсы из Минска*")
         parts.append(f"\n📊 **Всего рейсов:** {len(smorgon_to_ostrovets)}")
         
     elif direction == 'both':
@@ -2822,7 +2822,7 @@ def format_routes_message(routes_data, date, direction='all'):
         parts.append(f"📊 **Всего рейсов:** {len(all_routes)}")
         
         if any([minsk_to_smorgon, smorgon_to_minsk, ostrovets_to_smorgon, smorgon_to_ostrovets]):
-            parts.append("\n� *Маршруты через Сморгонь включают транзитные рейсы*")
+            parts.append("\n💡 *Маршруты через Сморгонь включают транзитные рейсы*")
     else:
         parts.append("❌ **Рейсы не найдены для выбранного направления**")
     

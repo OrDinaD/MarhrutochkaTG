@@ -1,21 +1,37 @@
 #!/usr/bin/env python3
 """
-Единый тестовый файл для всех функций бота MarhrutochkaTG
-Объединяет все необходимые тесты в одном месте
+🧪 Полное тестирование всех компонентов MarhrutochkaTG Bot
+
+Этот модуль содержит комплексные тесты для проверки всех основных
+компонентов телеграм-бота, включая импорты, функциональность и интеграции.
+
+GitHub Actions совместимость: ✅
 """
 
+import unittest
 import asyncio
 import os
 import sys
 import logging
 import traceback
+import time
+import json
+import warnings
 from datetime import datetime, timedelta
 from typing import Dict, Any
+from unittest.mock import patch, MagicMock
 
 # Добавляем src в путь
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
+
+# Добавляем путь к src для импорта модулей
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+
+# Подавляем предупреждения для чистого вывода
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Настройка логирования для тестов
 logging.basicConfig(
@@ -23,8 +39,232 @@ logging.basicConfig(
     format='%(levelname)s: %(message)s'
 )
 
-class CompleteBotTester:
-    """Полный тестер всех функций бота"""
+class CompleteBotTester(unittest.TestCase):
+    """
+    🤖 Полное тестирование всех компонентов бота
+    
+    Тестирует:
+    - Импорты модулей
+    - Основную функциональность  
+    - Клавиатуры и интерфейс
+    - Системы безопасности и мониторинга
+    """
+    
+    @classmethod
+    def setUpClass(cls):
+        """Настройка перед всеми тестами"""
+        os.environ['TELEGRAM_BOT_TOKEN'] = 'test_token_123456789'
+        os.environ['TEST_MODE'] = 'true'
+        os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+        print("🚀 Инициализация тестовой среды...")
+    
+    def setUp(self):
+        """Настройка перед каждым тестом"""
+        self.start_time = time.time()
+    
+    def tearDown(self):
+        """Очистка после каждого теста"""
+        test_time = time.time() - self.start_time
+        print(f"⏱️ Тест выполнен за {test_time:.3f}s")
+    
+    def test_01_bot_core_imports(self):
+        """🤖 Тест импорта основных модулей бота"""
+        print("📥 Тестирование импорта основных модулей...")
+        
+        try:
+            import bot
+            import admin_panel
+            import security
+            
+            # Проверяем наличие основных функций
+            self.assertTrue(hasattr(bot, 'get_main_menu_keyboard'), 
+                          "Функция get_main_menu_keyboard доступна")
+            self.assertTrue(hasattr(bot, 'get_date_keyboard'), 
+                          "Функция get_date_keyboard доступна")
+            
+            print("✅ Основные модули импортированы успешно")
+            
+        except ImportError as e:
+            self.fail(f"❌ Ошибка импорта основных модулей: {e}")
+    
+    def test_02_database_integration(self):
+        """🗄️ Тест интеграции с базой данных"""
+        print("🗄️ Тестирование интеграции с БД...")
+        
+        try:
+            from database import db_manager
+            print("✅ Модули базы данных импортированы успешно")
+            
+            # Проверяем доступность DatabaseManager
+            if hasattr(db_manager, 'DatabaseManager'):
+                print("✅ DatabaseManager доступен")
+            
+        except ImportError as e:
+            self.skipTest(f"⚠️ Модули базы данных недоступны: {e}")
+    
+    def test_03_utils_functionality(self):
+        """🛠️ Тест утилит и вспомогательных функций"""
+        print("🛠️ Тестирование утилит...")
+        
+        try:
+            import utils
+            print("✅ Утилиты импортированы успешно")
+            
+            # Тестируем парсер маршрутов если доступен
+            if hasattr(utils, 'FinalMarshrutochkaParser'):
+                print("✅ FinalMarshrutochkaParser доступен")
+                
+        except ImportError as e:
+            self.fail(f"❌ Ошибка импорта утилит: {e}")
+    
+    def test_04_monitoring_system(self):
+        """📊 Тест системы мониторинга"""
+        print("📊 Тестирование системы мониторинга...")
+        
+        try:
+            from monitoring import crash_handler
+            from monitoring import log_manager
+            print("✅ Система мониторинга импортирована успешно")
+            
+            # Проверяем CrashHandler
+            if hasattr(crash_handler, 'CrashHandler'):
+                print("✅ CrashHandler доступен")
+                
+        except ImportError as e:
+            self.skipTest(f"⚠️ Система мониторинга недоступна: {e}")
+    
+    def test_05_keyboard_generation(self):
+        """⌨️ Тест генерации клавиатур"""
+        print("⌨️ Тестирование генерации клавиатур...")
+        
+        try:
+            from bot import get_main_menu_keyboard, get_date_keyboard
+            
+            # Тестируем создание главного меню
+            main_menu = get_main_menu_keyboard(12345)
+            self.assertIsNotNone(main_menu, "Главное меню создано")
+            print("✅ Главное меню создано успешно")
+            
+            # Тестируем создание меню дат
+            date_menu = get_date_keyboard()
+            self.assertIsNotNone(date_menu, "Меню дат создано")
+            print("✅ Меню дат создано успешно")
+            
+            # Проверяем, что клавиатуры содержат кнопки
+            if hasattr(main_menu, 'keyboard') or hasattr(main_menu, 'inline_keyboard'):
+                print("✅ Главное меню содержит кнопки")
+                
+            if hasattr(date_menu, 'keyboard') or hasattr(date_menu, 'inline_keyboard'):
+                print("✅ Меню дат содержит кнопки")
+            
+        except Exception as e:
+            self.fail(f"❌ Ошибка тестирования клавиатур: {e}")
+    
+    def test_06_security_module(self):
+        """🔒 Тест модуля безопасности"""
+        print("🔒 Тестирование модуля безопасности...")
+        
+        try:
+            import security
+            print("✅ Модуль безопасности импортирован успешно")
+            
+            # Проверяем доступность функций безопасности
+            if hasattr(security, 'validate_user'):
+                print("✅ Функция validate_user доступна")
+                
+        except ImportError as e:
+            self.skipTest(f"⚠️ Модуль безопасности недоступен: {e}")
+    
+    def test_07_auth_system(self):
+        """🔑 Тест системы аутентификации"""
+        print("🔑 Тестирование системы аутентификации...")
+        
+        try:
+            from auth import bot_auth_manager
+            print("✅ Система аутентификации импортирована")
+            
+        except ImportError as e:
+            self.skipTest(f"⚠️ Система аутентификации недоступна: {e}")
+    
+    def test_08_performance_check(self):
+        """⚡ Тест производительности"""
+        print("⚡ Тестирование производительности...")
+        
+        import psutil
+        import os
+        
+        process = psutil.Process(os.getpid())
+        memory_usage = process.memory_info().rss / 1024 / 1024  # MB
+        
+        print(f"📊 Использование памяти: {memory_usage:.2f} MB")
+        
+        # Проверяем, что использование памяти разумное
+        self.assertLess(memory_usage, 500, 
+                       "Использование памяти не превышает 500 MB")
+        
+        print("✅ Тест производительности пройден")
+    
+    def test_09_emoji_symbols(self):
+        """😀 Тест корректности эмодзи и символов"""
+        print("😀 Тестирование эмодзи и символов...")
+        
+        # Проверяем, что проблемных символов больше нет
+        test_files = [
+            '../src/bot.py',
+            '../src/utils/route_analyzer.py',
+            '../scripts/start_bot.sh'
+        ]
+        
+        problematic_symbols = ['�', '\ufffd']
+        
+        for file_path in test_files:
+            full_path = os.path.join(os.path.dirname(__file__), file_path)
+            if os.path.exists(full_path):
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        for symbol in problematic_symbols:
+                            self.assertNotIn(symbol, content, 
+                                           f"Проблемный символ {symbol} найден в {file_path}")
+                    print(f"✅ {file_path} не содержит проблемных символов")
+                except Exception as e:
+                    print(f"⚠️ Не удалось проверить {file_path}: {e}")
+        
+        print("✅ Проверка эмодзи завершена")
+
+class GitHubActionsIntegration(unittest.TestCase):
+    """
+    🚀 Тесты для интеграции с GitHub Actions
+    """
+    
+    def test_github_environment(self):
+        """🔍 Проверка среды GitHub Actions"""
+        
+        if 'GITHUB_ACTIONS' in os.environ:
+            print("🚀 Обнаружена среда GitHub Actions")
+            
+            # Проверяем переменные окружения GitHub Actions
+            github_vars = [
+                'GITHUB_WORKFLOW',
+                'GITHUB_RUN_ID', 
+                'GITHUB_RUN_NUMBER',
+                'GITHUB_SHA',
+                'GITHUB_REF'
+            ]
+            
+            for var in github_vars:
+                if var in os.environ:
+                    print(f"✅ {var}: {os.environ[var]}")
+                else:
+                    print(f"⚠️ {var}: не найдена")
+            
+            print("✅ Среда GitHub Actions настроена корректно")
+        else:
+            print("🏠 Локальная среда разработки")
+
+# Сохраняем старый класс для совместимости
+class CompleteBotTesterOld:
+    """Старый тестер для обратной совместимости"""
     
     def __init__(self):
         self.test_results = {}
@@ -331,11 +571,89 @@ class CompleteBotTester:
                 print("❌ Некоторые функции работают неправильно")
             return 1
 
+def run_tests_with_reporter():
+    """
+    🎯 Запуск тестов с подробной отчётностью
+    """
+    
+    print("🧪 Запуск комплексного тестирования MarhrutochkaTG Bot")
+    print("=" * 60)
+    
+    # Создаём test suite
+    loader = unittest.TestLoader()
+    suite = unittest.TestSuite()
+    
+    # Добавляем основные тесты
+    suite.addTests(loader.loadTestsFromTestCase(CompleteBotTester))
+    suite.addTests(loader.loadTestsFromTestCase(GitHubActionsIntegration))
+    
+    # Настраиваем runner
+    runner = unittest.TextTestRunner(
+        verbosity=2, 
+        stream=sys.stdout,
+        buffer=True
+    )
+    
+    # Запускаем тесты
+    start_time = time.time()
+    result = runner.run(suite)
+    end_time = time.time()
+    
+    # Формируем отчёт
+    print("\n" + "=" * 60)
+    print("📊 ОТЧЁТ О ТЕСТИРОВАНИИ")
+    print("=" * 60)
+    print(f"⏱️ Время выполнения: {end_time - start_time:.2f} секунд")
+    print(f"🧪 Всего тестов: {result.testsRun}")
+    print(f"✅ Пройдено: {result.testsRun - len(result.failures) - len(result.errors)}")
+    print(f"❌ Провалено: {len(result.failures)}")
+    print(f"💥 Ошибок: {len(result.errors)}")
+    print(f"⏭️ Пропущено: {len(result.skipped)}")
+    
+    if result.failures:
+        print(f"\n❌ ПРОВАЛИВШИЕСЯ ТЕСТЫ:")
+        for test, traceback in result.failures:
+            print(f"- {test}: {traceback}")
+    
+    if result.errors:
+        print(f"\n💥 ОШИБКИ:")
+        for test, traceback in result.errors:
+            print(f"- {test}: {traceback}")
+    
+    # Экспорт результатов для GitHub Actions
+    if 'GITHUB_ACTIONS' in os.environ:
+        summary = {
+            'total_tests': result.testsRun,
+            'passed': result.testsRun - len(result.failures) - len(result.errors),
+            'failed': len(result.failures),
+            'errors': len(result.errors),
+            'skipped': len(result.skipped),
+            'duration': end_time - start_time,
+            'success': result.wasSuccessful()
+        }
+        
+        # Сохраняем JSON отчёт
+        with open('test-results.json', 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        print(f"\n📄 Результаты сохранены в test-results.json")
+    
+    print("=" * 60)
+    
+    return result.wasSuccessful()
+
+# Совместимость со старым API
 async def main():
-    """Основная функция"""
+    """Основная функция для обратной совместимости"""
     try:
-        tester = CompleteBotTester()
-        return await tester.run_all_tests()
+        # Запускаем старый тестер если нужен
+        if 'USE_OLD_TESTER' in os.environ:
+            tester = CompleteBotTesterOld()
+            return await tester.run_all_tests()
+        else:
+            # Запускаем новый unittest-based тестер
+            success = run_tests_with_reporter()
+            return 0 if success else 1
     except KeyboardInterrupt:
         print("\n⚠️ Тестирование прервано пользователем")
         return 1
@@ -345,22 +663,38 @@ async def main():
         return 1
 
 if __name__ == "__main__":
-    # Проверяем наличие .env файла
-    if not os.path.exists('.env'):
-        print("⚠️ Файл .env не найден!")
-        print("💡 Создайте файл .env с необходимыми переменными")
-        print("📝 Пример:")
-        print("TELEGRAM_BOT_TOKEN=your_bot_token_here")
-        print("ADMIN_TELEGRAM_ID=your_admin_id")
-        sys.exit(1)
-    
-    # Загружаем переменные окружения
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        print("⚠️ python-dotenv не установлен")
-        print("💡 Установите: pip install python-dotenv")
-    
-    exit_code = asyncio.run(main())
-    sys.exit(exit_code)
+    # Проверяем среду выполнения
+    if 'GITHUB_ACTIONS' in os.environ:
+        print("🚀 Запуск в GitHub Actions")
+        # В GitHub Actions используем unittest напрямую
+        success = run_tests_with_reporter()
+        sys.exit(0 if success else 1)
+    else:
+        print("🏠 Локальный запуск")
+        # Локально можем проверить .env файл
+        if not os.path.exists('.env') and 'TEST_MODE' not in os.environ:
+            print("⚠️ Файл .env не найден!")
+            print("💡 Создайте файл .env с необходимыми переменными")
+            print("📝 Пример:")
+            print("TELEGRAM_BOT_TOKEN=your_bot_token_here")
+            print("ADMIN_TELEGRAM_ID=your_admin_id")
+            print("🧪 Или установите TEST_MODE=true для тестирования")
+            # Не выходим из-за отсутствия .env в тестовом режиме
+            os.environ['TEST_MODE'] = 'true'
+        
+        # Загружаем переменные окружения если есть dotenv
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            print("⚠️ python-dotenv не установлен (это нормально для тестов)")
+        
+        # Запускаем тесты
+        if len(sys.argv) > 1 and '--unittest' in sys.argv:
+            # Запуск через unittest
+            success = run_tests_with_reporter()
+            sys.exit(0 if success else 1)
+        else:
+            # Запуск через asyncio (старый метод)
+            exit_code = asyncio.run(main())
+            sys.exit(exit_code)

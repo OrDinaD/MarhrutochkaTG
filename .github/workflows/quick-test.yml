@@ -1,0 +1,71 @@
+name: 🚀 Quick Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, beta ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/**'
+
+jobs:
+  quick_test:
+    name: 🧪 Quick Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: 📦 Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: 🧪 Run Tests
+        env:
+          TEST_MODE: "true"
+          TELEGRAM_BOT_TOKEN: "test_token"
+        run: |
+          echo "🧪 Запуск быстрых тестов..."
+          
+          # Тестируем импорты
+          python -c "
+          import sys
+          sys.path.append('src')
+          print('📥 Тестирование импортов...')
+          try:
+              import bot
+              print('✅ bot.py импортирован')
+              from bot import get_main_menu_keyboard
+              print('✅ get_main_menu_keyboard доступна')
+              keyboard = get_main_menu_keyboard(12345)
+              print('✅ Клавиатура создана')
+          except Exception as e:
+              print(f'❌ Ошибка: {e}')
+              sys.exit(1)
+          print('✅ Быстрые тесты пройдены!')
+          "
+      
+      - name: 🧪 Run Full Test Suite
+        env:
+          TEST_MODE: "true"
+          TELEGRAM_BOT_TOKEN: "test_token"
+        run: |
+          echo "🧪 Запуск полного набора тестов..."
+          python tests/test_all.py --unittest
+      
+      - name: 📊 Test Summary
+        if: always()
+        run: |
+          echo "## 🧪 Quick Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Python Version:** 3.11" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date)" >> $GITHUB_STEP_SUMMARY

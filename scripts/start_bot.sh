@@ -29,7 +29,7 @@ check_file() {
 
 # Проверка основных файлов
 echo -e "
-${BLUE}� Проверка файлов...${NC}"
+${BLUE}🔍 Проверка файлов...${NC}"
 
 required_files=(
     "main.py"
@@ -53,7 +53,7 @@ ${BLUE}⚙️ Проверка конфигурации...${NC}"
 if [ ! -f ".env" ]; then
     echo -e "${YELLOW}⚠️ Файл .env не найден${NC}"
     if [ -f ".env.example" ]; then
-        echo -e "${CYAN}� Найден .env.example, создаю .env...${NC}"
+        echo -e "${CYAN}📄 Найден .env.example, создаю .env...${NC}"
         cp .env.example .env
         echo -e "${YELLOW}📝 Отредактируйте .env и укажите ваш TELEGRAM_BOT_TOKEN${NC}"
         exit 1
@@ -96,7 +96,7 @@ fi
 
 # Создание директорий
 echo -e "
-${BLUE}� Создание рабочих директорий...${NC}"
+${BLUE}📁 Создание рабочих директорий...${NC}"
 mkdir -p logs user_sessions
 echo -e "${GREEN}✅ Директории созданы${NC}"
 
@@ -125,10 +125,10 @@ echo -e "${BLUE}===========================================${NC}
 
 # Определяем способ запуска
 if [ -f "main.py" ]; then
-    echo -e "${CYAN}� Запуск через main.py...${NC}"
+    echo -e "${CYAN}🚀 Запуск через main.py...${NC}"
     python main.py
 else
-    echo -e "${CYAN}� Прямой запуск src/bot.py...${NC}"
+    echo -e "${CYAN}🚀 Прямой запуск src/bot.py...${NC}"
     python src/bot.py
 fi
 

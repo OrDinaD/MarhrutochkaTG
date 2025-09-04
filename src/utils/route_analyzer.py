@@ -278,7 +278,7 @@ def format_route_with_intermediate_cities(route_detail: RouteDetail) -> str:
     """
     # Базовая информация
     route_info = [
-        f"� **{route_detail.departure_time} → {route_detail.arrival_time}** ({route_detail.duration})"
+        f"🚌 **{route_detail.departure_time} → {route_detail.arrival_time}** ({route_detail.duration})"
     ]
     
     # Проверяем, нужно ли показывать места (для Сморгонь-Островец не показываем)

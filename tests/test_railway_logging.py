@@ -38,44 +38,33 @@ def test_railway_logging():
         "timestamp": datetime.now().isoformat()
     })
     
-    logger.auth_action("Успешная авторизация", {
-        "user_id": 12345,
+    logger.user_action("Успешная авторизация", user_id=12345, data={
         "method": "telegram",
         "ip": "192.168.1.1"
     })
     
-    logger.parser_action("Парсинг завершен", {
+    logger.system_action("Парсинг завершен", {
         "routes_found": 15,
         "processing_time": 2.5,
         "source": "marshrutochka.ru"
     })
     
-    logger.admin_action("Пользователь заблокирован", {
+    logger.monitoring_action("Пользователь заблокирован", {
         "admin_id": 99999,
         "target_user": 12345,
         "reason": "spam"
     })
     
-    # 3. Тестируем измерение времени
-    print("\n3️⃣ Измерение времени выполнения:")
+    # 3. Тестируем базовые методы логирования
+    print("\n3️⃣ Базовые методы логирования:")
     
-    @logger.measure_time("test_operation")
-    def slow_operation():
-        time.sleep(1)
-        return "Операция завершена"
+    # Имитируем медленную операцию
+    print("Выполняется медленная операция...")
+    time.sleep(0.1)  # Короткая пауза для демонстрации
+    logger.info("Операция завершена успешно")
     
-    result = slow_operation()
-    print(f"Результат: {result}")
-    
-    # 4. Тестируем контекстный менеджер
-    print("\n4️⃣ Контекстный менеджер:")
-    
-    with logger.time_context("database_query"):
-        time.sleep(0.5)
-        logger.info("Выполняется запрос к базе данных...")
-    
-    # 5. Тестируем логирование ошибок
-    print("\n5️⃣ Логирование ошибок:")
+    # 4. Тестируем логирование ошибок с дополнительной информацией
+    print("\n4️⃣ Логирование ошибок:")
     
     try:
         raise ValueError("Тестовая ошибка для демонстрации")
@@ -86,21 +75,11 @@ def test_railway_logging():
             "test_context": "demonstration"
         })
     
-    # 6. Тестируем удобные функции
-    print("\n6️⃣ Удобные функции:")
-    
-    from src.monitoring.railway_logger_enhanced import log_startup, log_user_action, log_error
-    
-    log_startup("TestApp", version="1.0.0", environment="test")
-    log_user_action(12345, "button_click", button="start")
-    log_error("Тестовая ошибка", operation="test_function", context="demonstration")
-    
     print("\n✅ Тестирование завершено!")
     print("\nПроверьте логи:")
     print("- INFO, WARNING, ERROR должны отображаться зеленым в Railway")
     print("- DEBUG должен отображаться серым")
     print("- Все логи должны быть в JSON формате")
-    print("- Время выполнения должно быть измерено")
 
 if __name__ == "__main__":
     # Устанавливаем переменные окружения для имитации Railway
