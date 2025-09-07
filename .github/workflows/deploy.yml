@@ -113,55 +113,11 @@ jobs:
           print('✅ Pre-deploy validation completed')
           "
 
-  # ================== СБОРКА DOCKER ОБРАЗА ==================
-  build_docker:
-    name: 🐳 Build Docker Image
-    runs-on: ubuntu-latest
-    needs: [prepare, pre_deploy_tests]
-    if: needs.prepare.outputs.should_deploy == 'true'
-    
-    steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: 🐳 Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: 🔑 Login to Docker Hub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      
-      - name: 🏷️ Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: marha/telegram-bot
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
-      
-      - name: 🔨 Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   # ================== ДЕПЛОЙ НА RAILWAY ==================
   deploy_railway:
     name: 🚂 Deploy to Railway
     runs-on: ubuntu-latest
-    needs: [prepare, pre_deploy_tests, build_docker]
+    needs: [prepare, pre_deploy_tests]
     if: needs.prepare.outputs.should_deploy == 'true'
     environment: production
     
@@ -234,8 +190,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Components:**" >> $GITHUB_STEP_SUMMARY
           echo "- 🧪 Pre-deploy tests: ${{ needs.pre_deploy_tests.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 Docker build: ${{ needs.build_docker.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- 🚂 Railway deploy: ${{ needs.deploy_railway.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "-  Railway deploy: ${{ needs.deploy_railway.result }}" >> $GITHUB_STEP_SUMMARY
 
   # ================== СОЗДАНИЕ РЕЛИЗА ==================
   create_release:
@@ -268,7 +223,6 @@ jobs:
           echo "" >> CHANGELOG.md
           echo "## 🚀 Deployment" >> CHANGELOG.md
           echo "- ✅ Automatically deployed to Railway" >> CHANGELOG.md
-          echo "- 🐳 Docker image available" >> CHANGELOG.md
           echo "- 🧪 All tests passed" >> CHANGELOG.md
       
       - name: 🏷️ Create Release

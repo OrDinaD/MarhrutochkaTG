@@ -113,7 +113,7 @@ class CrashHandler:
             }
             
             # Проверяем конфигурационные файлы
-            config_files = ['main.py', 'Procfile', 'Dockerfile', '.env.example']
+            config_files = ['main.py', 'Procfile', '.env.example']
             for file_name in config_files:
                 file_path = Path(file_name)
                 if file_path.exists():
@@ -124,7 +124,7 @@ class CrashHandler:
                             "modified": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
                         }
                         # Для некритичных файлов читаем содержимое
-                        if file_name in ['Procfile', 'Dockerfile']:
+                        if file_name == 'Procfile':
                             app_state["config_files"][file_name]["content"] = file_path.read_text()
                     except Exception as e:
                         app_state["config_files"][file_name] = {"error": str(e)}

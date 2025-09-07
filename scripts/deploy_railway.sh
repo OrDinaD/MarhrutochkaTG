@@ -30,14 +30,6 @@ fi
 
 echo -e "${GREEN}✅ Railway CLI готов к работе${NC}"
 
-# Проверяем наличие Dockerfile
-if [ ! -f "Dockerfile" ]; then
-    echo -e "${RED}❌ Dockerfile не найден!${NC}"
-    exit 1
-fi
-
-echo -e "${GREEN}✅ Dockerfile найден${NC}"
-
 # Проверяем наличие requirements.txt
 if [ ! -f "requirements.txt" ]; then
     echo -e "${YELLOW}⚠️ requirements.txt не найден, создаем...${NC}"
