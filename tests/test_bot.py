@@ -11,16 +11,14 @@ class TestBotFunctions:
     """Тесты основных функций бота"""
     
     @pytest.mark.asyncio
-    async def test_start_command_with_new_user(self, mock_telegram_update, mock_telegram_context, mock_database, mock_keyboards):
-        """Тестирует команду /start для нового пользователя"""
+    async def test_start_command_with_new_user(self, mock_telegram_update, mock_telegram_context, mock_keyboards):
+        """Тестирует команду /start для нового пользователя (без БД - memory-only)"""
         
-        # Мокаем что пользователь не существует в базе
-        mock_database.user_exists.return_value = False
+        # Используем memory-only архитектуру без внешней БД
         mock_keyboards.get_main_menu_keyboard.return_value = Mock()
         
         # Импортируем функцию с патчингом зависимостей
         with patch.dict('sys.modules', {
-            'src.database.db_manager': mock_database,
             'src.utils.keyboards.keyboard_factory': mock_keyboards,
             'src.monitoring.railway_logger': Mock(),
             'src.managers.user_manager': Mock()
@@ -38,16 +36,14 @@ class TestBotFunctions:
             # Проверяем что функция была вызвана
             mock_start.assert_called_once()
     
-    @pytest.mark.asyncio 
-    async def test_start_command_with_existing_user(self, mock_telegram_update, mock_telegram_context, mock_database, mock_keyboards):
-        """Тестирует команду /start для существующего пользователя"""
+    @pytest.mark.asyncio
+    async def test_start_command_with_existing_user(self, mock_telegram_update, mock_telegram_context, mock_keyboards):
+        """Тестирует команду /start для существующего пользователя (memory-only)"""
         
-        # Мокаем что пользователь существует в базе
-        mock_database.user_exists.return_value = True
+        # Используем memory-only архитектуру без внешней БД
         mock_keyboards.get_main_menu_keyboard.return_value = Mock()
         
         with patch.dict('sys.modules', {
-            'src.database.db_manager': mock_database,
             'src.utils.keyboards.keyboard_factory': mock_keyboards
         }):
             mock_start = AsyncMock()

@@ -348,72 +348,26 @@ def callback_handler_protection(timeout=30):
 # Создаем директории для данных
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(os.path.join(DATA_DIR, 'user_sessions'), exist_ok=True)
 
 DATA_FILE = os.path.join(DATA_DIR, 'monitors.json')
-# Хранилище сессий (для legacy авторизации через RequestsAuthManager)
-user_sessions = {}
-USER_SESSIONS_FILE = os.path.join(DATA_DIR, 'user_sessions.json')
-
-def load_user_sessions():
-    """Загрузка сессий пользователей из файла (legacy RequestsAuthManager)."""
-    global user_sessions
-    if os.path.exists(USER_SESSIONS_FILE):
-        try:
-            with open(USER_SESSIONS_FILE, 'r', encoding='utf-8') as f:
-                raw = json.load(f)
-            # Нельзя напрямую восстановить requests.Session; сохраняем только метаданные.
-            # Поэтому при необходимости авторизации заново пользователь выполнит вход.
-            if isinstance(raw, dict):
-                user_sessions = raw
-            logger.info(f"🔓 Загружены legacy-сессии (метаданные) для {len(user_sessions)} пользователей")
-        except Exception as e:
-            logger.error(f"Не удалось загрузить user_sessions: {e}")
-
-def save_user_sessions():
-    """Сохранение метаданных сессий пользователей (legacy)."""
-    try:
-        with open(USER_SESSIONS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(user_sessions, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"Не удалось сохранить user_sessions: {e}")
+# Удалены legacy компоненты user_sessions - используется memory-only архитектура
 
 def load_active_monitors():
-    """Загрузка активных мониторингов через UserManager"""
-    global user_manager
+    """Загрузка активных мониторингов - теперь используется memory-only режим"""
     try:        
-        # Загружаем мониторинги из памяти
-        logger.info("Мониторинги загружаются из файловой системы")
+        # Мониторинги хранятся в памяти через user_manager
+        logger.info("Мониторинги работают в memory-only режиме")
         
     except Exception as e:
-        logger.error(f"Не удалось загрузить мониторинги: {e}")
+        logger.error(f"Ошибка инициализации мониторингов: {e}")
 
 def save_active_monitors():
-    """Сохранение активных мониторингов через UserManager"""
+    """Сохранение активных мониторингов - legacy функция (теперь не используется)"""
     try:
-        # Мониторинги теперь автоматически сохраняются через user_manager
-        logger.debug("Мониторинги сохранены через UserManager")
+        # Мониторинги теперь хранятся только в памяти для максимальной производительности
+        logger.debug("Мониторинги работают в memory-only режиме")
     except Exception as e:
-        logger.error(f"Не удалось сохранить мониторинги: {e}")
-
-def save_user_to_db(user_id: int, user_data: dict):
-    """Сохраняет данные пользователя в базу данных"""
-    return user_manager.save_user_to_db(user_id, user_data)
-
-def load_user_from_db(user_id: int) -> dict:
-    """Загружает данные пользователя из базы данных"""
-    return user_manager.load_user_from_db(user_id)
-
-def save_user_monitors_to_db(user_id: int):
-    """Сохраняет мониторинги пользователя в БД"""
-    monitor = user_manager.get_user_monitor(user_id)
-    if monitor:
-        return user_manager.save_user_monitor_to_db(user_id, monitor)
-    return False
-
-def load_user_monitors_from_db(user_id: int) -> list:
-    """Загружает мониторинги пользователя из БД"""
-    return user_manager.load_user_monitors_from_db(user_id)
+        logger.error(f"Ошибка в save_active_monitors: {e}")
 
 # НЕ загружаем мониторинги на уровне модуля - переносим в main()
 # load_active_monitors()
@@ -1063,6 +1017,17 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
             ]),
             parse_mode='Markdown'
         )
+    
+    elif data == "back_to_range":
+        # Возвращаемся к выбору диапазона времени
+        time_type = user_data_store[user_id].get('time_type', 'departure')
+        await safe_edit_message(
+            query,
+            "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
+            reply_markup=get_time_range_keyboard(time_type),
+            parse_mode='Markdown'
+        )
+        return CHOOSE_TIME_RANGE
 
 async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка текстового ввода"""
@@ -1648,7 +1613,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/start` - главное меню
 • `/monitoring` - управление мониторингом
 • `/profile` - ваш профиль
-• `/booking` - автоматическое бронирование
+• `/help` - справка по использованию
 • `/help` - эта справка
 
 🛠 **Система диагностики (админ):**
@@ -1927,7 +1892,7 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
     """Начало процесса поиска рейсов с выбором направления"""
     # Создаем клавиатуру для выбора типа поиска
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("�️ Минск → Островец", callback_data="search_dir_minsk_ostrovets")],
+        [InlineKeyboardButton("🏙️ Минск → Островец", callback_data="search_dir_minsk_ostrovets")],
         [InlineKeyboardButton("🏘️ Островец → Минск", callback_data="search_dir_ostrovets_minsk")],
         [InlineKeyboardButton("🎯 Выбрать города по отдельности", callback_data="search_by_cities")],
         [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
@@ -1936,7 +1901,7 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
     if update.message:
         await update.message.reply_text(
             "🔍 **Выберите маршрут для поиска:**\n\n"
-            "�️🏘️ **Популярные направления** - быстрый доступ к самым популярным маршрутам\n"
+            "🏙️🏘️ **Популярные направления** - быстрый доступ к самым популярным маршрутам\n"
             "🎯 **По отдельности** - выберите откуда и куда, включая Сморгонь",
             parse_mode='Markdown',
             reply_markup=keyboard
@@ -1946,7 +1911,7 @@ async def handle_regular_search(update: Update, context: ContextTypes.DEFAULT_TY
         await safe_edit_message(
                 query,
             "🔍 **Выберите маршрут для поиска:**\n\n"
-            "🏙️�️ **Популярные направления** - быстрый доступ к самым популярным маршрутам\n"
+            "🏙️🏘️ **Популярные направления** - быстрый доступ к самым популярным маршрутам\n"
             "🎯 **По отдельности** - выберите откуда и куда, включая Сморгонь",
             parse_mode='Markdown',
             reply_markup=keyboard
@@ -2235,36 +2200,9 @@ def format_routes_message(routes_data, date, direction='all'):
     
     return "\n".join(parts)
 
-# ==================== BOOKING HANDLERS ====================
-
-async def book_ticket_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Бронирование недоступно"""
-    query = update.callback_query
-    
-    await safe_edit_message(query,
-        "🔒 **Бронирование недоступно**\n\n"
-        "Функции бронирования были удалены.",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("� Главное меню", callback_data="back_to_main")
-        ]]),
-        parse_mode='Markdown'
-    )
-
-async def handle_booking_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Бронирование недоступно"""
-    await book_ticket_handler(update, context)
-
-async def handle_booking_passenger_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Бронирование недоступно"""
-    pass
-
-async def handle_booking_passenger_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Бронирование недоступно"""
-    pass
-
-async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Бронирование недоступно"""
-    await book_ticket_handler(update, context)
+# ==================== УДАЛЕНЫ ФУНКЦИИ АВТОБРОНИРОВАНИЯ ====================
+# Все функции бронирования были удалены для упрощения архитектуры
+# Бот теперь фокусируется только на поиске и мониторинге маршрутов
 
 # ==================== CALLBACK HANDLERS ====================
 
@@ -2358,9 +2296,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Поиск с выбранными городами
         await handle_date_choice(update, context)
     
-    elif data.startswith("date_") and context.user_data.get('booking_mode'):
-        # Обработка выбора даты для бронирования
-        await handle_booking_date_choice(update, context)
+    # Удален обработчик бронирования - функция больше не поддерживается
     
     elif data.startswith("date_") and user_id in user_data_store and 'search_direction' in user_data_store[user_id]:
         # Поиск с выбранным направлением и датой
@@ -2411,12 +2347,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     elif data == "book_ticket":
-        # Бронирование больше не поддерживается
-        await book_ticket_handler(update, context)
+        # Бронирование удалено - показываем главное меню
+        await safe_edit_message(query,
+            "🏠 **Главное меню**\n\nВыберите действие:",
+            reply_markup=get_main_menu_keyboard(user_id),
+            parse_mode='Markdown'
+        )
     
     elif data == "booking_confirm":
-        # Бронирование больше не поддерживается
-        await book_ticket_handler(update, context)
+        # Бронирование удалено - показываем главное меню
+        await safe_edit_message(query,
+            "🏠 **Главное меню**\n\nВыберите действие:",
+            reply_markup=get_main_menu_keyboard(user_id),
+            parse_mode='Markdown'
+        )
         
     elif data == "booking_cancel":
         # Переходим в главное меню
@@ -2424,11 +2368,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_edit_message(query, text, reply_markup=get_main_menu_keyboard(user_id))
     
     elif data.startswith("bookings_"):
-        # Обработчик фильтрации бронирований был удален - переходим в главное меню
-        text = "ℹ️ **Функции бронирования временно недоступны**"
-        await safe_edit_message(
-                query,
-            text,
+        # Функции бронирования удалены - переходим в главное меню
+        await safe_edit_message(query,
+            "🏠 **Главное меню**\n\nВыберите действие:",
             reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
@@ -2497,14 +2439,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_answer_callback(query, "❌ Мониторинг не активен")
     
     elif data == "auto_booking":
-        # Автобронирование недоступно
-        await safe_edit_message(
-                query,
-            "🔒 **Автобронирование недоступно**\n\n"
-            "Функции автобронирования были удалены.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
-            ]),
+        # Автобронирование удалено - показываем главное меню
+        await safe_edit_message(query,
+            "🏠 **Главное меню**\n\nВыберите действие:",
+            reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
     
@@ -2518,28 +2456,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Обработчики автобронирования
     elif data == "my_bookings":
-        await safe_edit_message(
-                query,
-            "🔒 **Мои бронирования недоступны**\n\n"
-            "Функции бронирования были удалены.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
-            ]),
+        # Бронирования удалены - показываем главное меню
+        await safe_edit_message(query,
+            "🏠 **Главное меню**\n\nВыберите действие:",
+            reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
     
     elif data == "auto_book_monitoring":
-        await safe_edit_message(
-                query,
-            "🔔 **АВТОБРОНИРОВАНИЕ ПРИ МОНИТОРИНГЕ**\n\n"
-            "🚧 Функция в разработке\n\n"
-            "Эта функция позволит автоматически бронировать рейсы, "
-            "когда они появляются в процессе мониторинга.\n\n"
-            "💡 Скоро будет доступна!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🤖 Автобронирование", callback_data="auto_booking")],
-                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
-            ]),
+        # Автобронирование удалено - показываем главное меню
+        await safe_edit_message(query,
+            "🏠 **Главное меню**\n\nВыберите действие:",
+            reply_markup=get_main_menu_keyboard(user_id),
             parse_mode='Markdown'
         )
     
@@ -2570,8 +2498,65 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
     
+    # Обработка кнопок изменения настроек мониторинга
+    elif data == "change_date":
+        await safe_edit_message(
+            query,
+            "📅 **Изменение даты**\n\n"
+            "Выберите новую дату поездки:",
+            reply_markup=get_date_keyboard(),
+            parse_mode='Markdown'
+        )
+    
+    elif data == "change_direction":
+        await safe_edit_message(
+            query,
+            "🛣️ **Изменение направления**\n\n"
+            "Выберите новое направление:",
+            reply_markup=get_direction_keyboard(),
+            parse_mode='Markdown'
+        )
+    
+    elif data == "change_time":
+        await safe_edit_message(
+            query,
+            "⏰ **Изменение времени**\n\n"
+            "Что важнее для вас?",
+            reply_markup=get_time_type_keyboard(),
+            parse_mode='Markdown'
+        )
+    
+    elif data == "back_to_time_type":
+        await safe_edit_message(
+            query,
+            "⏰ **Выбор времени**\n\n"
+            "Что важнее для вас?",
+            reply_markup=get_time_type_keyboard(),
+            parse_mode='Markdown'
+        )
+    
+    elif data == "cancel_setup":
+        # Очищаем данные пользователя
+        if user_id in user_data_store:
+            del user_data_store[user_id]
+        context.user_data.clear()
+        
+        # Возвращаем в главное меню
+        text = (
+            "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
+            "🛣️ **Направления:** Минск ⇄ Островец\n\n"
+            "💡 **Выберите действие:**"
+        )
+        
+        await safe_edit_message(
+            query,
+            text,
+            reply_markup=get_main_menu_keyboard(user_id),
+            parse_mode='Markdown'
+        )
+    
     # Проверяем callback data, которые должны обрабатываться ConversationHandler
-    elif data.startswith(("time_", "dir_", "confirm_", "back_to_time", "back_to_direction", "back_to_range")):
+    elif data.startswith(("time_", "dir_", "confirm_", "back_to_direction", "back_to_range")):
         # Эти callback data должны обрабатываться ConversationHandler
         # Если мы дошли сюда, значит ConversationHandler не в правильном состоянии
         await safe_answer_callback(query, "⚠️ Состояние диалога было сброшено. Пожалуйста, начните заново.")
@@ -2627,7 +2612,7 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
     
     if action == "admin_monitoring_stats":
         # Статистика мониторингов
-        stats_text = admin_panel.get_monitoring_statistics(active_monitors, user_sessions)
+        stats_text = admin_panel.get_monitoring_statistics(active_monitors)
         
         keyboard = [
             [InlineKeyboardButton("🔄 Обновить", callback_data="admin_monitoring_stats")],
@@ -2643,7 +2628,7 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
     
     elif action == "admin_active_users":
         # Активные пользователи
-        users_text = admin_panel.get_active_users_info(active_monitors, user_sessions, user_data_store)
+        users_text = admin_panel.get_active_users_info(active_monitors, user_data_store)
         
         keyboard = [
             [InlineKeyboardButton("🔄 Обновить", callback_data="admin_active_users")],
@@ -2720,7 +2705,7 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
     
     elif action == "admin_clear_user_cache":
         # Очистка кэша
-        result = admin_panel.clear_user_cache(user_data_store, user_sessions)
+        result = admin_panel.clear_user_cache(user_data_store)
         
         keyboard = [
             [InlineKeyboardButton("🔙 Экстренные функции", callback_data="admin_emergency")],
@@ -2738,7 +2723,7 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
         # Экспорт данных
         await safe_answer_callback(query, "📤 Экспортирую данные...")
         
-        export_result = admin_panel.export_data(active_monitors, user_sessions)
+        export_result = admin_panel.export_data(active_monitors)
         
         if export_result['success']:
             message_text = (
@@ -2765,9 +2750,6 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode='Markdown'
         )
 
-# ==================== PROFILE AND BOOKING COMMANDS ====================
-
-# Функции бронирования удалены - бронирование больше не поддерживается
 
 # ==================== MAIN APPLICATION ====================
 
@@ -2886,7 +2868,7 @@ def main():
         
         # Загружаем существующие мониторинги и сессии
         load_active_monitors()
-        load_user_sessions()
+        # Legacy load_user_sessions удален - используется memory-only режим
         
         # Добавляем фоновую задачу для очистки застрявших callbacks
         job_queue.run_repeating(
@@ -2898,7 +2880,7 @@ def main():
         
         safe_log_bot("Данные восстановлены", {
             "monitors_count": len(active_monitors),
-            "sessions_count": len(user_sessions),
+            "mode": "memory-only",
             "callback_cleanup": "enabled"
         })
         

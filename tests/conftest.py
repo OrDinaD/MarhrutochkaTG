@@ -75,14 +75,7 @@ def mock_telegram_context():
     
     return context
 
-@pytest.fixture
-def mock_database():
-    """Мокаем базу данных"""
-    mock_db = Mock()
-    mock_db.user_exists = Mock(return_value=True)
-    mock_db.save_user = Mock()
-    mock_db.get_user = Mock(return_value={'id': 12345, 'username': 'test_user'})
-    return mock_db
+# Удален mock_database - используется memory-only архитектура без внешней БД
 
 @pytest.fixture
 def mock_parser():

@@ -5,6 +5,7 @@
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -34,14 +35,13 @@ class AdminPanel:
         ]
         return InlineKeyboardMarkup(keyboard)
     
-    def get_monitoring_statistics(self, active_monitors: Dict, user_sessions: Dict) -> str:
-        """Возвращает статистику мониторингов"""
+    def get_monitoring_statistics(self, active_monitors: Dict) -> str:
+        """Возвращает статистику мониторингов (без legacy user_sessions)"""
         if not active_monitors:
             return "📊 **Статистика мониторингов**\n\n❌ Активных мониторингов нет"
         
         # Общая статистика
         total_monitors = len(active_monitors)
-        total_sessions = len(user_sessions)
         
         # Статистика по направлениям
         direction_stats = {}
@@ -64,7 +64,7 @@ class AdminPanel:
             "",
             f"🔢 **Общие показатели:**",
             f"• Активных мониторингов: **{total_monitors}**",
-            f"• Авторизованных пользователей: **{total_sessions}**",
+            f"• Уникальных пользователей: **{total_monitors}**",
             "",
             "🛣️ **По направлениям:**"
         ]
@@ -107,11 +107,10 @@ class AdminPanel:
         
         return "\n".join(report_parts)
     
-    def get_active_users_info(self, active_monitors: Dict, user_sessions: Dict, user_data_store: Dict) -> str:
+    def get_active_users_info(self, active_monitors: Dict, user_data_store: Dict) -> str:
         """Возвращает информацию об активных пользователях"""
         all_user_ids = set()
         all_user_ids.update(active_monitors.keys())
-        all_user_ids.update(user_sessions.keys())
         all_user_ids.update(user_data_store.keys())
         
         if not all_user_ids:
@@ -139,9 +138,7 @@ class AdminPanel:
                 date = config.get('date', 'unknown')
                 user_info.append(f"   🔔 Мониторинг: {direction} на {date}")
             
-            # Проверяем авторизацию
-            if user_id in user_sessions:
-                user_info.append(f"   🔑 Авторизован в системе")
+            # Legacy авторизация удалена - используется memory-only режим
             
             # Проверяем активность
             if user_id in user_data_store:
@@ -151,7 +148,7 @@ class AdminPanel:
             
         return "\n".join(report_parts)
     
-    def get_user_details(self, user_id: int, active_monitors: Dict, user_sessions: Dict, user_data_store: Dict) -> str:
+    def get_user_details(self, user_id: int, active_monitors: Dict, user_data_store: Dict) -> str:
         """Возвращает детальную информацию о пользователе"""
         report_parts = [
             f"👤 **ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ**",
@@ -175,18 +172,8 @@ class AdminPanel:
         else:
             report_parts.append("🔔 **Мониторинг:** не активен\n")
         
-        # Информация об авторизации
-        if user_id in user_sessions:
-            auth_manager = user_sessions[user_id]
-            phone = getattr(auth_manager, 'phone', 'неизвестно')
-            report_parts.extend([
-                "🔑 **АВТОРИЗАЦИЯ:**",
-                f"• Статус: авторизован",
-                f"• Телефон: {phone}",
-                ""
-            ])
-        else:
-            report_parts.append("🔑 **Авторизация:** не выполнена\n")
+        # Legacy авторизация удалена - теперь используется memory-only режим
+        report_parts.append("🔑 **Авторизация:** не требуется (memory-only режим)\n")
         
         # Информация о данных в памяти
         if user_id in user_data_store:
@@ -312,33 +299,31 @@ class AdminPanel:
         except Exception as e:
             return f"🛑 **Остановка мониторингов**\n\n❌ Ошибка: {str(e)}"
     
-    def clear_user_cache(self, user_data_store: Dict, user_sessions: Dict) -> str:
+    def clear_user_cache(self, user_data_store: Dict) -> str:
         """Очищает кэш пользовательских данных"""
         try:
             data_count = len(user_data_store)
-            session_count = len(user_sessions)
             
             user_data_store.clear()
-            user_sessions.clear()
             
             return (
                 f"🧹 **Очистка кэша**\n\n"
                 f"✅ Очищено:\n"
                 f"• Пользовательских данных: {data_count}\n"
-                f"• Сессий авторизации: {session_count}"
+                f"• Режим: memory-only (без внешних сессий)"
             )
             
         except Exception as e:
             return f"🧹 **Очистка кэша**\n\n❌ Ошибка: {str(e)}"
     
-    def export_data(self, active_monitors: Dict, user_sessions: Dict) -> Dict:
+    def export_data(self, active_monitors: Dict) -> Dict:
         """Экспортирует данные бота"""
         try:
             export_data = {
                 'timestamp': datetime.now().isoformat(),
                 'active_monitors': active_monitors,
-                'user_sessions_count': len(user_sessions),
-                'total_users': len(set(list(active_monitors.keys()) + list(user_sessions.keys())))
+                'mode': 'memory-only',
+                'total_users': len(active_monitors)
             }
             
             # Сохраняем в файл

@@ -307,7 +307,7 @@ class AutoRecoverySystem:
             
             # Файлы для проверки и восстановления
             critical_files = [
-                'data/user_sessions.json',
+                # 'data/user_sessions.json', - удален, используется memory-only
                 'monitors.json',
                 'data/logs/bot.log'
             ]
@@ -353,7 +353,7 @@ class AutoRecoverySystem:
             critical_dirs = [
                 'logs',
                 'crash_logs',
-                'user_sessions',
+                # 'user_sessions', - удален, используется memory-only
                 'src'
             ]
             
@@ -434,7 +434,7 @@ class AutoRecoverySystem:
             critical_paths = [
                 'data/logs',
                 'data/crash_logs',
-                'data/user_sessions.json',
+                # 'data/user_sessions.json', - удален, используется memory-only
                 'monitors.json'
             ]
             
