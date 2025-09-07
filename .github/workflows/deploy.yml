@@ -1,5 +1,10 @@
 name: 🚀 Automated Deployment
 
+# Required GitHub Secrets for this workflow:
+# - RAILWAY_TOKEN: Project token from Railway dashboard (Settings -> Tokens)
+# Optional secrets:
+# - RAILWAY_SERVICE_ID: Service ID if you want to deploy to specific service
+
 on:
   push:
     branches: [ main ]
@@ -127,22 +132,28 @@ jobs:
       
       - name: 🚂 Install Railway CLI
         run: |
+          # Используем рекомендованный метод установки
           curl -fsSL https://railway.app/install.sh | sh
           echo "$HOME/.railway/bin" >> $GITHUB_PATH
+          
+          # Проверяем установку
+          railway --version
       
       - name: 🚀 Deploy to Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           echo "🚂 Starting Railway deployment..."
+          echo "Using Railway token for authentication..."
           
-          # Логин в Railway
-          railway login --browserless
+          # Проверяем, что токен установлен
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "❌ RAILWAY_TOKEN is not set"
+            echo "Please add RAILWAY_TOKEN to your repository secrets"
+            exit 1
+          fi
           
-          # Связываем с проектом
-          railway link ${{ secrets.RAILWAY_PROJECT_ID }}
-          
-          # Деплоим
+          # Деплоим (Railway CLI автоматически использует RAILWAY_TOKEN)
           railway up --detach
           
           echo "✅ Railway deployment completed"
@@ -190,7 +201,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Components:**" >> $GITHUB_STEP_SUMMARY
           echo "- 🧪 Pre-deploy tests: ${{ needs.pre_deploy_tests.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "-  Railway deploy: ${{ needs.deploy_railway.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🚂 Railway deploy: ${{ needs.deploy_railway.result }}" >> $GITHUB_STEP_SUMMARY
 
   # ================== СОЗДАНИЕ РЕЛИЗА ==================
   create_release:
