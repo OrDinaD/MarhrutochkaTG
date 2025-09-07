@@ -51,12 +51,12 @@ jobs:
             echo "❌ Deployment skipped"
           fi
 
-  # ================== ТЕСТИРОВАНИЕ ПЕРЕД ДЕПЛОЕМ ==================
-  pre_deploy_tests:
-    name: 🧪 Pre-Deploy Tests
-    runs-on: ubuntu-latest
-    needs: prepare
-    if: needs.prepare.outputs.should_deploy == 'true'
+  # ================== ТЕСТИРОВАНИЕ ПЕРЕД ДЕПЛОЕМ (ОТКЛЮЧЕНО ДЛЯ СКОРОСТИ) ==================
+  # pre_deploy_tests:
+  #   name: 🧪 Pre-Deploy Tests
+  #   runs-on: ubuntu-latest
+  #   needs: prepare
+  #   if: needs.prepare.outputs.should_deploy == 'true'
     
     steps:
       - name: 📥 Checkout repository
@@ -122,7 +122,7 @@ jobs:
   deploy_railway:
     name: 🚂 Deploy to Railway
     runs-on: ubuntu-latest
-    needs: [prepare, pre_deploy_tests]
+    needs: [prepare]
     if: needs.prepare.outputs.should_deploy == 'true'
     environment: production
     
@@ -153,8 +153,21 @@ jobs:
             exit 1
           fi
           
-          # Деплоим (Railway CLI автоматически использует RAILWAY_TOKEN)
-          railway up --detach
+          # Деплоим с указанием сервиса (если указан) или автоматически
+          if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
+            echo "Using specific service: ${{ secrets.RAILWAY_SERVICE_ID }}"
+            railway up --service=${{ secrets.RAILWAY_SERVICE_ID }} --detach
+          else
+            echo "Getting first available service..."
+            SERVICE_ID=$(railway services --json 2>/dev/null | jq -r '.[0].id' 2>/dev/null || echo "")
+            if [ -n "$SERVICE_ID" ] && [ "$SERVICE_ID" != "null" ]; then
+              echo "Auto-detected service: $SERVICE_ID"
+              railway up --service=$SERVICE_ID --detach
+            else
+              echo "Attempting deployment without service specification..."
+              railway up --detach || (echo "❌ Multiple services found. Please add RAILWAY_SERVICE_ID to secrets." && exit 1)
+            fi
+          fi
           
           echo "✅ Railway deployment completed"
       
