@@ -1,0 +1,61 @@
+<svg width="375" height="812" viewBox="0 0 375 812" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="375" height="812" fill="url(#bgGradient)"/>
+  
+  <!-- Phone frame -->
+  <rect x="10" y="60" width="355" height="692" rx="35" fill="#000000"/>
+  <rect x="15" y="65" width="345" height="682" rx="30" fill="#1a1a1a"/>
+  
+  <!-- Status bar -->
+  <rect x="25" y="85" width="325" height="40" fill="transparent"/>
+  <text x="45" y="108" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="600">12:32</text>
+  <circle cx="310" cy="100" r="3" fill="#ffffff"/>
+  <rect x="315" y="97" width="8" height="6" rx="1" fill="#ffffff"/>
+  <rect x="325" y="95" width="12" height="10" rx="2" fill="#00ff00"/>
+  <text x="340" y="108" fill="#00ff00" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500">59%</text>
+  
+  <!-- Telegram header -->
+  <rect x="25" y="135" width="325" height="60" fill="#2481cc"/>
+  <circle cx="55" cy="165" r="8" fill="#ffffff"/>
+  <path d="M50 162 l8 3 l-3 8 l-5 -11 z" fill="#2481cc"/>
+  <text x="75" y="172" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="600">Мониторинг маршруточки</text>
+  <circle cx="320" cy="165" r="12" fill="#40a7e3"/>
+  <text x="313" y="170" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16">🚌</text>
+  
+  <!-- "Доступен в Telegram" banner -->
+  <rect x="60" y="50" width="255" height="25" rx="12" fill="#2481cc"/>
+  <circle cx="75" cy="62" r="6" fill="#ffffff"/>
+  <path d="M72 60 l6 2 l-2 6 l-4 -8 z" fill="#2481cc"/>
+  <text x="88" y="67" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="500">Доступен в Telegram</text>
+  
+  <!-- Main content area -->
+  <rect x="25" y="205" width="325" height="450" fill="#000000"/>
+  
+  <!-- Bot info card -->
+  <rect x="45" y="540" width="285" height="140" rx="15" fill="#2d2d2d"/>
+  <text x="65" y="570" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="600">Что умеет этот бот?</text>
+  
+  <!-- Features list -->
+  <text x="65" y="595" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14">🚌 Автоматический мониторинг рейсов</text>
+  <text x="85" y="615" fill="#a0a0a0" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="13">Минск-Островец</text>
+  
+  <text x="65" y="640" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14">✅ Поиск по дате и времени</text>
+  <text x="65" y="660" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14">⏰ Уведомления каждые 5 минут</text>
+  <text x="65" y="680" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14">🔧 Удобные кнопки</text>
+  
+  <!-- Start button -->
+  <rect x="45" y="700" width="285" height="35" rx="10" fill="#1a1a1a" stroke="#2481cc" stroke-width="1"/>
+  <text x="65" y="722" fill="#2481cc" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14">/start - начать работу</text>
+  
+  <!-- Dynamic glow effect -->
+  <circle cx="187" cy="300" r="50" fill="#2481cc" opacity="0.3"/>
+  <circle cx="187" cy="300" r="30" fill="#2481cc" opacity="0.5"/>
+  <text x="180" y="308" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="24">🤖</text>
+</svg>

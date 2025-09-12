@@ -4,7 +4,7 @@
 
 <div align="center">
 
-![Интерфейс бота](assets/interface_preview.svg)
+![Интерфейс бота](assets/interface_preview_v2.svg)
 
 [![Railway Deploy](https://img.shields.io/badge/Deploy-Railway-blueviolet)](https://railway.app/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
