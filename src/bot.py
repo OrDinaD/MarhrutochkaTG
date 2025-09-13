@@ -1384,10 +1384,24 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
                     for i, route in enumerate(simple_routes_data[routes_key][:8], 1):
                         seats = route.get('available_seats', 0)
                         
-                        time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
-                        duration = route.get('duration', 'н/д')
-                        
-                        message_parts.append(f"{i}. {time_info} ({duration})")
+                        # Специальный формат для маршрутов через Сморгонь (Минск → Островец)
+                        if route.get('via_smorgon') and from_city == "Минск" and to_city == "Островец":
+                            departure_time = route.get('departure_time')
+                            smorgon_arrival = route.get('smorgon_arrival', '')
+                            smorgon_departure = route.get('smorgon_departure', '')
+                            arrival_time = route.get('arrival_time')
+                            duration = route.get('duration', 'н/д')
+                            
+                            message_parts.append(f"{i}. Минск {departure_time}")
+                            if smorgon_arrival and smorgon_departure:
+                                smorgon_duration = "45 мин"  # Время от Сморгони до Островца
+                                message_parts.append(f"   {smorgon_departure} → {arrival_time} ({smorgon_duration})")
+                            else:
+                                message_parts.append(f"   → {arrival_time} ({duration})")
+                        else:
+                            time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
+                            duration = route.get('duration', 'н/д')
+                            message_parts.append(f"{i}. {time_info} ({duration})")
                         
                         # Проверяем, нужно ли показывать места
                         is_smorgon_to_ostrovets = (from_city == "Сморгонь" and to_city == "Островец")
@@ -1395,14 +1409,13 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
                         if not is_smorgon_to_ostrovets and seats is not None:
                             seat_emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
                             message_parts.append(f"   {seat_emoji} {seats} мест")
-                        elif is_smorgon_to_ostrovets:
-                            message_parts.append(f"   ✅ Всех берут")
                         
-                        # Добавляем информацию о промежуточных городах
-                        if route.get('via_smorgon'):
-                            message_parts.append(f"   🛣️ *через Сморгонь*")
-                        elif route.get('via_oshmiany'):
-                            message_parts.append(f"   🛣️ *через Ошмяны*")
+                        # Добавляем информацию о промежуточных городах только для других маршрутов
+                        if not is_smorgon_to_ostrovets:
+                            if route.get('via_smorgon') and not (from_city == "Минск" and to_city == "Островец"):
+                                message_parts.append(f"   🛣️ *через Сморгонь*")
+                            elif route.get('via_oshmiany'):
+                                message_parts.append(f"   🛣️ *через Ошмяны*")
                     
                     message_parts.append(f"\n📊 **Всего рейсов:** {len(simple_routes_data[routes_key])}")
                     message = "\n".join(message_parts)
@@ -1520,10 +1533,24 @@ async def perform_route_search(query, user_id: int, from_city: str, to_city: str
                 for i, route in enumerate(simple_routes_data[routes_key][:8], 1):
                     seats = route.get('available_seats', 0)
                     
-                    time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
-                    duration = route.get('duration', 'н/д')
-                    
-                    message_parts.append(f"{i}. {time_info} ({duration})")
+                    # Специальный формат для маршрутов через Сморгонь (Минск → Островец)
+                    if route.get('via_smorgon') and from_city == "Минск" and to_city == "Островец":
+                        departure_time = route.get('departure_time')
+                        smorgon_arrival = route.get('smorgon_arrival', '')
+                        smorgon_departure = route.get('smorgon_departure', '')
+                        arrival_time = route.get('arrival_time')
+                        duration = route.get('duration', 'н/д')
+                        
+                        message_parts.append(f"{i}. Минск {departure_time}")
+                        if smorgon_arrival and smorgon_departure:
+                            smorgon_duration = "45 мин"  # Время от Сморгони до Островца
+                            message_parts.append(f"   {smorgon_departure} → {arrival_time} ({smorgon_duration})")
+                        else:
+                            message_parts.append(f"   → {arrival_time} ({duration})")
+                    else:
+                        time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
+                        duration = route.get('duration', 'н/д')
+                        message_parts.append(f"{i}. {time_info} ({duration})")
                     
                     # Проверяем, нужно ли показывать места
                     is_smorgon_to_ostrovets = (from_city == "Сморгонь" and to_city == "Островец")
@@ -1531,14 +1558,15 @@ async def perform_route_search(query, user_id: int, from_city: str, to_city: str
                     if not is_smorgon_to_ostrovets and seats is not None:
                         seat_emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
                         message_parts.append(f"   {seat_emoji} {seats} мест")
-                    elif is_smorgon_to_ostrovets:
-                        message_parts.append(f"   ✅ Всех берут")
                     
-                    # Добавляем информацию о промежуточных городах
-                    if route.get('via_smorgon'):
-                        message_parts.append(f"   🛣️ *через Сморгонь*")
-                    elif route.get('via_oshmiany'):
-                        message_parts.append(f"   🛣️ *через Ошмяны*")
+                    # Добавляем информацию о промежуточных городах только для других маршрутов
+                    if not is_smorgon_to_ostrovets:
+                        if route.get('via_smorgon') and not (from_city == "Минск" and to_city == "Островец"):
+                            message_parts.append(f"   🛣️ *через Сморгонь*")
+                        elif route.get('via_oshmiany'):
+                            message_parts.append(f"   🛣️ *через Сморгонь*")
+                        elif route.get('via_oshmiany'):
+                            message_parts.append(f"   🛣️ *через Ошмяны*")
                     
                     message_parts.append("")  # Пустая строка между маршрутами
                 
@@ -2086,28 +2114,43 @@ def format_routes_message(routes_data, date, direction='all'):
         for i, route in enumerate(routes, 1):
             seats = route.get('available_seats', 0)
             
-            # Форматируем основную информацию
-            time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
-            duration = route.get('duration', 'н/д')
-            
-            section.append(f"{i}. {time_info} ({duration})")
-            
-            # Проверяем, нужно ли показывать места (для Сморгонь-Островец не показываем)
+            # Проверяем, является ли это маршрутом через Сморгонь
             from_city = route.get('from_city', '')
             to_city = route.get('to_city', '')
+            
+            # Специальный формат для маршрутов через Сморгонь (Минск → Островец)
+            if route.get('via_smorgon') and from_city == "Минск" and to_city == "Островец":
+                departure_time = route.get('departure_time')
+                smorgon_arrival = route.get('smorgon_arrival', '')
+                smorgon_departure = route.get('smorgon_departure', '')
+                arrival_time = route.get('arrival_time')
+                duration = route.get('duration', 'н/д')
+                
+                section.append(f"{i}. Минск {departure_time}")
+                if smorgon_arrival and smorgon_departure:
+                    smorgon_duration = "45 мин"  # Время от Сморгони до Островца
+                    section.append(f"   {smorgon_departure} → {arrival_time} ({smorgon_duration})")
+                else:
+                    section.append(f"   → {arrival_time} ({duration})")
+            else:
+                # Обычный формат
+                time_info = f"**{route.get('departure_time')} → {route.get('arrival_time')}**"
+                duration = route.get('duration', 'н/д')
+                section.append(f"{i}. {time_info} ({duration})")
+            
+            # Проверяем, нужно ли показывать места (для Сморгонь-Островец не показываем)
             is_smorgon_to_ostrovets = (from_city == "Сморгонь" and to_city == "Островец")
             
             if not is_smorgon_to_ostrovets and seats is not None:
                 seat_emoji = "🚫" if seats == 0 else "🔥" if seats <= 3 else "✅"
                 section.append(f"   {seat_emoji} {seats} мест")
-            elif is_smorgon_to_ostrovets:
-                section.append(f"   ✅ Всех берут")
             
-            # Добавляем информацию о промежуточных городах для транзитных маршрутов
-            if route.get('via_smorgon'):
-                section.append(f"   🛣️ *через Сморгонь*")
-            elif route.get('via_oshmiany'):
-                section.append(f"   🛣️ *через Ошмяны*")
+            # Добавляем информацию о промежуточных городах только для других маршрутов
+            if not is_smorgon_to_ostrovets:
+                if route.get('via_smorgon') and not (from_city == "Минск" and to_city == "Островец"):
+                    section.append(f"   🛣️ *через Сморгонь*")
+                elif route.get('via_oshmiany'):
+                    section.append(f"   🛣️ *через Ошмяны*")
                 
         return section
     

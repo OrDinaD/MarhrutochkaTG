@@ -83,6 +83,9 @@ monitors.json
 
 # Скриншоты и временные файлы
 *.png
+!assets/*.png
+!assets/*.svg
+!assets/*.jpg
 *.jpg
 *.jpeg
 *.gif

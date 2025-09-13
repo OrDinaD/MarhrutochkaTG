@@ -252,8 +252,18 @@ class FinalMarshrutochkaParser:
         return []
     
     async def get_routes_minsk_ostrovets(self, date: str) -> List[Dict]:
-        """Получить маршруты Минск-Островец"""
-        return await self.search_routes("Минск", "Островец", date)
+        """Получить маршруты Минск-Островец (статическое расписание через Сморгонь)"""
+        from .route_analyzer import generate_static_minsk_smorgon_ostrovets_schedule
+        
+        # Используем статическое расписание для маршрута через Сморгонь
+        try:
+            static_routes = generate_static_minsk_smorgon_ostrovets_schedule(date)
+            logger.info(f"Сгенерировано {len(static_routes)} статических маршрутов Минск-Островец через Сморгонь")
+            return static_routes
+        except Exception as e:
+            logger.error(f"Ошибка генерации статического расписания: {e}")
+            # Fallback на обычный парсинг
+            return await self.search_routes("Минск", "Островец", date)
     
     async def get_routes_ostrovets_minsk(self, date: str) -> List[Dict]:
         """Получить маршруты Островец-Минск"""

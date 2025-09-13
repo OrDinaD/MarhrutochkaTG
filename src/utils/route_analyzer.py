@@ -319,3 +319,64 @@ def format_route_with_intermediate_cities(route_detail: RouteDetail) -> str:
         route_info.append("✅ **Всех берут** (места не ограничены)")
     
     return "\n".join(route_info)
+
+
+def generate_static_minsk_smorgon_ostrovets_schedule(search_date: str) -> List[Dict]:
+    """
+    Генерирует статическое расписание для маршрута Минск-Сморгонь-Островец
+    
+    Args:
+        search_date: Дата поиска в формате YYYY-MM-DD
+        
+    Returns:
+        List[Dict]: Список маршрутов с информацией о времени и ценах
+    """
+    from datetime import datetime, timedelta
+    
+    # Фиксированные времена отправления из Минска через Сморгонь
+    minsk_departure_times = [
+        "07:00", "07:30", "08:30", "09:30", "10:00", 
+        "11:00", "12:00", "13:30", "14:30", "15:30", 
+        "16:30", "18:00", "19:00", "21:00"
+    ]
+    
+    routes = []
+    current_time = datetime.now()
+    search_datetime = datetime.strptime(search_date, "%Y-%m-%d")
+    is_today = search_datetime.date() == current_time.date()
+    
+    for i, departure_time in enumerate(minsk_departure_times, 1):
+        # Вычисляем время прибытия в Сморгонь (1 час 40 минут)
+        dep_hour, dep_minute = map(int, departure_time.split(':'))
+        dep_dt = datetime.now().replace(hour=dep_hour, minute=dep_minute, second=0)
+        smorgon_arrival_dt = dep_dt + timedelta(minutes=100)  # 1ч 40мин
+        
+        # Вычисляем время отправления из Сморгони в Островец (через 5 минут)
+        smorgon_departure_dt = smorgon_arrival_dt + timedelta(minutes=5)
+        
+        # Вычисляем время прибытия в Островец (45 минут от Сморгони)
+        ostrovets_arrival_dt = smorgon_departure_dt + timedelta(minutes=45)
+        
+        # Если ищем на сегодня, пропускаем уже ушедшие рейсы
+        # Проверяем, что рейс еще не дошел до Островца
+        if is_today and ostrovets_arrival_dt.time() <= current_time.time():
+            continue
+        
+        route = {
+            'route_id': f'static_minsk_smorgon_ostrovets_{i}',
+            'from_city': 'Минск',
+            'to_city': 'Островец',
+            'departure_time': departure_time,
+            'arrival_time': ostrovets_arrival_dt.strftime("%H:%M"),
+            'duration': '3ч 10мин',
+            'price_str': '8,00 руб.',
+            'available_seats': None,  # Места не ограничены
+            'carrier': 'Маршрутное такси',
+            'via_smorgon': True,
+            'smorgon_arrival': smorgon_arrival_dt.strftime("%H:%M"),
+            'smorgon_departure': smorgon_departure_dt.strftime("%H:%M"),
+            'is_static_route': True
+        }
+        routes.append(route)
+    
+    return routes
