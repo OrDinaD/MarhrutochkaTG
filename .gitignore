@@ -83,13 +83,13 @@ monitors.json
 
 # Скриншоты и временные файлы
 *.png
-!assets/*.png
-!assets/*.svg
-!assets/*.jpg
 *.jpg
 *.jpeg
 *.gif
 *.pdf
+!assets/*.png
+!assets/*.svg
+!assets/*.jpg
 marsha_*.py
 *_report.json
 *_exploration_*
