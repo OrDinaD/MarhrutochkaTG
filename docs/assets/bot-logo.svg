@@ -1,0 +1,58 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#007AFF;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#5856D6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#007AFF;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="busGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F0F9FF;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  
+  <!-- Background circle with gradient -->
+  <circle cx="60" cy="60" r="50" fill="url(#logoGradient)" filter="url(#shadow)"/>
+  
+  <!-- Bus body -->
+  <rect x="25" y="45" width="70" height="30" rx="8" ry="8" fill="url(#busGradient)" filter="url(#glow)"/>
+  
+  <!-- Bus windows -->
+  <rect x="30" y="50" width="15" height="12" rx="2" ry="2" fill="#007AFF" opacity="0.3"/>
+  <rect x="48" y="50" width="15" height="12" rx="2" ry="2" fill="#007AFF" opacity="0.3"/>
+  <rect x="66" y="50" width="15" height="12" rx="2" ry="2" fill="#007AFF" opacity="0.3"/>
+  <rect x="84" y="50" width="8" height="12" rx="2" ry="2" fill="#007AFF" opacity="0.3"/>
+  
+  <!-- Bus wheels -->
+  <circle cx="35" cy="75" r="6" fill="#48484A"/>
+  <circle cx="35" cy="75" r="3" fill="#8E8E93"/>
+  <circle cx="85" cy="75" r="6" fill="#48484A"/>
+  <circle cx="85" cy="75" r="3" fill="#8E8E93"/>
+  
+  <!-- Bus door -->
+  <rect x="78" y="52" width="12" height="16" rx="1" ry="1" fill="url(#busGradient)" stroke="#007AFF" stroke-width="1" opacity="0.8"/>
+  <line x1="84" y1="54" x2="84" y2="66" stroke="#007AFF" stroke-width="0.5"/>
+  
+  <!-- Notification bell -->
+  <g transform="translate(75, 25)">
+    <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2Z" fill="#FF9500"/>
+    <path d="M21 19V20H3V19L5 17V11C5 7.9 7.03 5.17 10 4.29C10 4.19 10 4.1 10 4C10 2.9 10.9 2 12 2C13.1 2 14 2.9 14 4C14 4.1 14 4.19 14 4.29C16.97 5.17 19 7.9 19 11V17L21 19ZM12 22C13.1 22 14 21.1 14 20H10C10 21.1 10.9 22 12 22Z" fill="#FF9500" transform="scale(0.5) translate(-12, -8)"/>
+  </g>
+  
+  <!-- Route indicator -->
+  <g transform="translate(20, 25)">
+    <circle cx="3" cy="3" r="2" fill="#34C759"/>
+    <line x1="3" y1="5" x2="3" y2="10" stroke="#34C759" stroke-width="1" stroke-dasharray="2,1"/>
+    <circle cx="3" cy="12" r="2" fill="#FF3B30"/>
+  </g>
+</svg>

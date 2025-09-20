@@ -4,170 +4,556 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Мониторинг маршруточки - Telegram-бот</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;500;600;700&family=SF+Pro+Text:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        :root {
+            /* Apple's color system */
+            --color-primary: #007AFF;
+            --color-primary-hover: #0056CC;
+            --color-secondary: #5856D6;
+            --color-success: #34C759;
+            --color-warning: #FF9500;
+            --color-danger: #FF3B30;
+            
+            /* Neutral colors */
+            --color-black: #000000;
+            --color-white: #FFFFFF;
+            --color-gray-100: #F2F2F7;
+            --color-gray-200: #E5E5EA;
+            --color-gray-300: #D1D1D6;
+            --color-gray-400: #C7C7CC;
+            --color-gray-500: #AEAEB2;
+            --color-gray-600: #8E8E93;
+            --color-gray-700: #636366;
+            --color-gray-800: #48484A;
+            --color-gray-900: #1C1C1E;
+            
+            /* Typography */
+            --font-family-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-family-text: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            
+            /* Spacing system */
+            --spacing-xs: 0.25rem;   /* 4px */
+            --spacing-sm: 0.5rem;    /* 8px */
+            --spacing-md: 1rem;      /* 16px */
+            --spacing-lg: 1.5rem;    /* 24px */
+            --spacing-xl: 2rem;      /* 32px */
+            --spacing-2xl: 3rem;     /* 48px */
+            --spacing-3xl: 4rem;     /* 64px */
+            
+            /* Border radius */
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 20px;
+            --radius-xl: 28px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+            --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+            --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+            --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.08);
+            
+            /* Glass morphism */
+            --glass-bg: rgba(255, 255, 255, 0.25);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --glass-blur: blur(20px);
+        }
+        
+        * {
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
+            box-sizing: border-box;
+        }
+        
+        html {
+            scroll-behavior: smooth;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        body {
+            font-family: var(--font-family-text);
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+            background-size: 400% 400%;
+            animation: gradientFlow 15s ease infinite;
+            color: var(--color-gray-900);
             line-height: 1.6;
+            overflow-x: hidden;
+            position: relative;
+        }
+        
+        @keyframes gradientFlow {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        /* Floating particles animation */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.3) 0%, transparent 50%),
+                        radial-gradient(circle at 40% 40%, rgba(120, 219, 255, 0.3) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+            animation: floatingBg 20s ease infinite;
+        }
+        
+        @keyframes floatingBg {
+            0%, 100% { opacity: 1; transform: translateY(0px) rotate(0deg); }
+            50% { opacity: 0.8; transform: translateY(-20px) rotate(5deg); }
         }
         
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px;
+            padding: var(--spacing-lg);
+            position: relative;
+            z-index: 1;
         }
         
+        /* Glassmorphism hero section */
         .hero {
             text-align: center;
-            padding: 60px 20px;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            margin-bottom: 40px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: var(--spacing-3xl) var(--spacing-xl);
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl);
+            margin-bottom: var(--spacing-2xl);
+            box-shadow: var(--shadow-xl);
+            position: relative;
+            overflow: hidden;
+            animation: fadeInUp 1s ease-out;
         }
         
-        .hero h1 {
-            font-size: 3em;
-            margin-bottom: 20px;
-            color: #2c3e50;
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent);
+            animation: shimmer 3s ease-in-out infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .hero-logo {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto var(--spacing-lg);
+            background: transparent;
+            border-radius: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 15px;
+            animation: logoFloat 6s ease-in-out infinite;
+            position: relative;
+            overflow: hidden;
         }
         
-        .hero p {
-            font-size: 1.3em;
-            color: #555;
-            margin-bottom: 30px;
+        .hero-logo svg {
+            width: 100%;
+            height: 100%;
+            filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
+        }
+        
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-10px) rotate(2deg); }
+        }
+        
+        @keyframes logoShine {
+            0% { transform: translateX(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) rotate(45deg); }
+        }
+        
+        .hero h1 {
+            font-family: var(--font-family-display);
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 700;
+            margin-bottom: var(--spacing-lg);
+            color: var(--color-white);
+            background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+        }
+        
+        .hero-subtitle {
+            font-size: clamp(1.1rem, 2.5vw, 1.375rem);
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: var(--spacing-xl);
+            font-weight: 500;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
         }
         
         .telegram-btn {
-            display: inline-block;
-            background: #0088cc;
-            color: white;
-            padding: 15px 30px;
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            background: var(--color-primary);
+            color: var(--color-white);
+            padding: var(--spacing-md) var(--spacing-xl);
             text-decoration: none;
-            border-radius: 50px;
-            font-size: 1.2em;
-            font-weight: bold;
-            transition: all 0.3s ease;
-            box-shadow: 0 5px 15px rgba(0,136,204,0.3);
+            border-radius: var(--radius-lg);
+            font-size: 1.125rem;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: var(--shadow-md);
+            border: none;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .telegram-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.6s;
+        }
+        
+        .telegram-btn:hover::before {
+            left: 100%;
         }
         
         .telegram-btn:hover {
-            background: #006699;
-            transform: translateY(-2px);
-            box-shadow: 0 7px 20px rgba(0,136,204,0.4);
+            background: var(--color-primary-hover);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: var(--shadow-lg);
         }
         
+        .telegram-btn:active {
+            transform: translateY(0) scale(0.98);
+        }
+        
+        /* Features section with glassmorphism cards */
         .features {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 30px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: var(--spacing-xl);
+            margin-bottom: var(--spacing-3xl);
         }
         
         .feature {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            padding: var(--spacing-xl);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
             text-align: center;
-            transition: transform 0.3s ease;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            animation: fadeInUp 1s ease-out;
+            animation-delay: calc(var(--index) * 0.1s);
+        }
+        
+        .feature:nth-child(1) { --index: 1; }
+        .feature:nth-child(2) { --index: 2; }
+        .feature:nth-child(3) { --index: 3; }
+        
+        .feature::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .feature:hover::before {
+            opacity: 1;
         }
         
         .feature:hover {
-            transform: translateY(-5px);
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: var(--shadow-xl);
+            border-color: rgba(255, 255, 255, 0.3);
         }
         
         .feature-icon {
-            font-size: 3em;
-            margin-bottom: 20px;
+            font-size: 3.5rem;
+            margin-bottom: var(--spacing-lg);
             display: block;
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+            animation: iconFloat 8s ease-in-out infinite;
+            animation-delay: calc(var(--index) * 0.5s);
+        }
+        
+        @keyframes iconFloat {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            33% { transform: translateY(-5px) rotate(1deg); }
+            66% { transform: translateY(5px) rotate(-1deg); }
         }
         
         .feature h3 {
-            color: #2c3e50;
-            margin-bottom: 15px;
-            font-size: 1.4em;
+            font-family: var(--font-family-display);
+            color: var(--color-white);
+            margin-bottom: var(--spacing-md);
+            font-size: 1.375rem;
+            font-weight: 600;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
         
+        .feature p {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+        
+        /* Commands section */
         .commands {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            margin-bottom: 40px;
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            padding: var(--spacing-3xl);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-xl);
+            margin-bottom: var(--spacing-3xl);
+            animation: fadeInUp 1s ease-out;
+            animation-delay: 0.4s;
         }
         
         .commands h2 {
+            font-family: var(--font-family-display);
             text-align: center;
-            color: #2c3e50;
-            margin-bottom: 30px;
-            font-size: 2em;
+            color: var(--color-white);
+            margin-bottom: var(--spacing-xl);
+            font-size: clamp(1.875rem, 4vw, 2.5rem);
+            font-weight: 700;
+            text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
         }
         
         .command-list {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: var(--spacing-lg);
         }
         
         .command {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 10px;
-            border-left: 4px solid #3498db;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            padding: var(--spacing-lg);
+            border-radius: var(--radius-md);
+            border-left: 4px solid var(--color-primary);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .command::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .command:hover::before {
+            opacity: 1;
+        }
+        
+        .command:hover {
+            transform: translateX(8px);
+            border-left-color: var(--color-success);
+            box-shadow: var(--shadow-md);
         }
         
         .command-name {
-            font-family: 'Courier New', monospace;
-            font-weight: bold;
-            color: #e74c3c;
-            font-size: 1.1em;
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-weight: 600;
+            color: var(--color-primary);
+            font-size: 1.125rem;
+            margin-bottom: var(--spacing-sm);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }
         
+        .command p {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9375rem;
+            line-height: 1.6;
+        }
+        
+        /* Footer */
         .footer {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 30px;
-            border-radius: 15px;
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            padding: var(--spacing-xl);
+            border-radius: var(--radius-lg);
             text-align: center;
-            margin-top: 40px;
+            margin-top: var(--spacing-2xl);
+            box-shadow: var(--shadow-lg);
+            animation: fadeInUp 1s ease-out;
+            animation-delay: 0.6s;
+        }
+        
+        .footer h3 {
+            font-family: var(--font-family-display);
+            color: var(--color-white);
+            margin-bottom: var(--spacing-md);
+            font-size: 1.375rem;
+            font-weight: 600;
         }
         
         .footer a {
-            color: #3498db;
+            color: var(--color-primary);
             text-decoration: none;
-            font-weight: bold;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .footer a::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--color-primary);
+            transition: width 0.3s ease;
+        }
+        
+        .footer a:hover::after {
+            width: 100%;
         }
         
         .footer a:hover {
-            text-decoration: underline;
+            color: var(--color-primary-hover);
+            text-shadow: 0 0 8px rgba(0, 122, 255, 0.3);
         }
         
         .privacy-link {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
+            margin-top: var(--spacing-lg);
+            padding-top: var(--spacing-lg);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
         }
         
+        .footer p {
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: var(--spacing-sm);
+        }
+        
+        .footer small {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.875rem;
+        }
+        
+        /* Device mockup */
+        .device-mockup {
+            max-width: 300px;
+            margin: var(--spacing-xl) auto;
+            animation: deviceFloat 8s ease-in-out infinite;
+            filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.3));
+        }
+        
+        .device-mockup svg {
+            width: 100%;
+            height: auto;
+        }
+        
+        /* Responsive Design */
         @media (max-width: 768px) {
-            .hero h1 {
-                font-size: 2em;
-                flex-direction: column;
-                gap: 10px;
+            .container {
+                padding: var(--spacing-md);
+            }
+            
+            .hero {
+                padding: var(--spacing-xl) var(--spacing-lg);
             }
             
             .features {
                 grid-template-columns: 1fr;
+                gap: var(--spacing-lg);
             }
             
             .command-list {
                 grid-template-columns: 1fr;
+            }
+            
+            .device-mockup {
+                width: 250px;
+                height: 500px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .hero-logo {
+                width: 100px;
+                height: 100px;
+                font-size: 3rem;
+            }
+            
+            .telegram-btn {
+                padding: var(--spacing-sm) var(--spacing-lg);
+                font-size: 1rem;
+            }
+        }
+        
+        /* Dark mode media query */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --glass-bg: rgba(28, 28, 30, 0.7);
+                --glass-border: rgba(255, 255, 255, 0.1);
+            }
+        }
+        
+        /* High contrast mode support */
+        @media (prefers-contrast: high) {
+            .feature, .commands, .hero, .footer {
+                border: 2px solid var(--color-white);
+            }
+        }
+        
+        /* Reduced motion support */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
             }
         }
     </style>
@@ -175,65 +561,260 @@
 <body>
     <div class="container">
         <div class="hero">
-            <h1><span>🚌</span> Мониторинг маршруточки</h1>
-            <p>Автоматический мониторинг рейсов Минск-Островец в Telegram</p>
+            <div class="hero-logo">
+                <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#007AFF;stop-opacity:1" />
+                            <stop offset="50%" style="stop-color:#5856D6;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#007AFF;stop-opacity:1" />
+                        </linearGradient>
+                        <linearGradient id="busGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#F0F9FF;stop-opacity:1" />
+                        </linearGradient>
+                        <filter id="glow">
+                            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                            <feMerge> 
+                                <feMergeNode in="coloredBlur"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                        <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                            <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.25"/>
+                        </filter>
+                    </defs>
+                    
+                    <!-- Background circle with gradient -->
+                    <circle cx="60" cy="60" r="50" fill="url(#logoGradient)" filter="url(#shadow)"/>
+                    
+                    <!-- Bus body -->
+                    <rect x="25" y="45" width="70" height="30" rx="8" ry="8" fill="url(#busGradient)" filter="url(#glow)"/>
+                    
+                    <!-- Bus windows -->
+                    <rect x="30" y="50" width="15" height="12" rx="2" ry="2" fill="#007AFF" opacity="0.3"/>
+                    <rect x="48" y="50" width="15" height="12" rx="2" ry="2" fill="#007AFF" opacity="0.3"/>
+                    <rect x="66" y="50" width="15" height="12" rx="2" ry="2" fill="#007AFF" opacity="0.3"/>
+                    <rect x="84" y="50" width="8" height="12" rx="2" ry="2" fill="#007AFF" opacity="0.3"/>
+                    
+                    <!-- Bus wheels -->
+                    <circle cx="35" cy="75" r="6" fill="#48484A"/>
+                    <circle cx="35" cy="75" r="3" fill="#8E8E93"/>
+                    <circle cx="85" cy="75" r="6" fill="#48484A"/>
+                    <circle cx="85" cy="75" r="3" fill="#8E8E93"/>
+                    
+                    <!-- Bus door -->
+                    <rect x="78" y="52" width="12" height="16" rx="1" ry="1" fill="url(#busGradient)" stroke="#007AFF" stroke-width="1" opacity="0.8"/>
+                    <line x1="84" y1="54" x2="84" y2="66" stroke="#007AFF" stroke-width="0.5"/>
+                    
+                    <!-- Notification bell -->
+                    <g transform="translate(75, 25)">
+                        <circle cx="6" cy="6" r="4" fill="#FF9500"/>
+                        <path d="M6 2 C7.1 2, 8 2.9, 8 4 C8 5.1, 7.1 6, 6 6 C4.9 6, 4 5.1, 4 4 C4 2.9, 4.9 2, 6 2 Z" fill="#FFFFFF"/>
+                    </g>
+                    
+                    <!-- Route indicator -->
+                    <g transform="translate(20, 25)">
+                        <circle cx="3" cy="3" r="2" fill="#34C759"/>
+                        <line x1="3" y1="5" x2="3" y2="10" stroke="#34C759" stroke-width="1" stroke-dasharray="2,1"/>
+                        <circle cx="3" cy="12" r="2" fill="#FF3B30"/>
+                    </g>
+                </svg>
+            </div>
+            <h1>Мониторинг маршруточки</h1>
+            <p class="hero-subtitle">Автоматический мониторинг рейсов Минск-Островец в Telegram с уведомлениями в реальном времени</p>
             <a href="https://t.me/MarshrutochkaOst_bot" class="telegram-btn">
-                📱 Запустить бота
+                <span>📱</span> Запустить бота
             </a>
         </div>
 
         <div class="features">
             <div class="feature">
                 <span class="feature-icon">🔍</span>
-                <h3>Поиск по дате и времени</h3>
-                <p>Быстро находите нужные рейсы на любую дату. Удобная навигация по расписанию маршруток.</p>
+                <h3>Умный поиск</h3>
+                <p>Мгновенный поиск маршруток по дате и времени с интеллектуальными фильтрами и персональными рекомендациями</p>
             </div>
             
             <div class="feature">
                 <span class="feature-icon">🔔</span>
-                <h3>Уведомления каждые 5 минут</h3>
-                <p>Получайте актуальную информацию о свободных местах автоматически, не нужно постоянно проверять.</p>
+                <h3>Live-уведомления</h3>
+                <p>Получайте push-уведомления о свободных местах каждые 5 минут. Никогда не упустите свой рейс</p>
             </div>
             
             <div class="feature">
-                <span class="feature-icon">📱</span>
-                <h3>Удобные кнопки</h3>
-                <p>Интуитивно понятный интерфейс с кнопками для быстрого выбора направления и времени поездки.</p>
+                <span class="feature-icon">⚡</span>
+                <h3>Быстрый интерфейс</h3>
+                <p>Современный адаптивный интерфейс с анимациями и жестами для максимального удобства использования</p>
             </div>
         </div>
 
+        <div class="device-mockup">
+            <svg viewBox="0 0 300 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="phoneGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#1C1C1E;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#2C2C2E;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="screenGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#000000;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#1A1A1A;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="headerGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#1C1C1E;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#2C2C2E;stop-opacity:1" />
+                    </linearGradient>
+                    <filter id="phoneGlow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                        <feMerge> 
+                            <feMergeNode in="coloredBlur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                    <filter id="screenShadow">
+                        <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/>
+                    </filter>
+                </defs>
+                
+                <!-- Phone body -->
+                <rect x="0" y="0" width="300" height="600" rx="40" ry="40" fill="url(#phoneGradient)" filter="url(#phoneGlow)"/>
+                
+                <!-- Screen -->
+                <rect x="20" y="20" width="260" height="560" rx="30" ry="30" fill="url(#screenGradient)" filter="url(#screenShadow)"/>
+                
+                <!-- Status bar -->
+                <rect x="20" y="20" width="260" height="40" rx="30" ry="30" fill="url(#headerGradient)"/>
+                
+                <!-- Time -->
+                <text x="40" y="45" font-family="SF Pro Display, -apple-system, system-ui" font-size="16" font-weight="600" fill="white">12:32</text>
+                
+                <!-- Battery and signal -->
+                <g transform="translate(200, 32)">
+                    <!-- Signal bars -->
+                    <circle cx="5" cy="8" r="1.5" fill="white"/>
+                    <circle cx="10" cy="8" r="1.5" fill="white"/>
+                    <circle cx="15" cy="8" r="1.5" fill="white"/>
+                    <circle cx="20" cy="8" r="1.5" fill="white"/>
+                    
+                    <!-- WiFi -->
+                    <path d="M25 8 C25 6, 30 6, 30 8" stroke="white" stroke-width="1" fill="none"/>
+                    <circle cx="27.5" cy="8" r="1" fill="white"/>
+                    
+                    <!-- Battery -->
+                    <rect x="35" y="5" width="15" height="8" rx="2" ry="2" stroke="white" stroke-width="1" fill="none"/>
+                    <rect x="50" y="7" width="1" height="4" rx="0.5" ry="0.5" fill="white"/>
+                    <rect x="37" y="7" width="11" height="4" rx="1" ry="1" fill="#34C759"/>
+                    <text x="55" y="12" font-family="SF Pro Display" font-size="10" fill="white">59%</text>
+                </g>
+                
+                <!-- App header -->
+                <rect x="20" y="60" width="260" height="60" fill="#007AFF"/>
+                
+                <!-- Back button -->
+                <g transform="translate(35, 80)">
+                    <circle cx="10" cy="10" r="8" fill="rgba(255,255,255,0.2)"/>
+                    <path d="M6 10 L10 6 L10 8 L14 8 L14 12 L10 12 L10 14 Z" fill="white"/>
+                </g>
+                
+                <!-- App title -->
+                <text x="150" y="95" font-family="SF Pro Display, -apple-system, system-ui" font-size="16" font-weight="600" fill="white" text-anchor="middle">Мониторинг маршруточки</text>
+                
+                <!-- Bot avatar -->
+                <g transform="translate(245, 75)">
+                    <circle cx="15" cy="15" r="15" fill="white"/>
+                    <text x="15" y="22" font-family="Apple Color Emoji" font-size="18" text-anchor="middle">🚌</text>
+                </g>
+                
+                <!-- Chat content -->
+                <rect x="20" y="120" width="260" height="400" fill="#000000"/>
+                
+                <!-- Bot info message -->
+                <g transform="translate(40, 180)">
+                    <rect x="0" y="0" width="220" height="180" rx="18" ry="18" fill="#1C1C1E"/>
+                    
+                    <!-- "Что умеет этот бот?" -->
+                    <text x="16" y="25" font-family="SF Pro Text, -apple-system, system-ui" font-size="15" font-weight="600" fill="white">Что умеет этот бот?</text>
+                    
+                    <!-- Bus icon and description -->
+                    <g transform="translate(16, 35)">
+                        <rect x="0" y="0" width="18" height="11" rx="2" ry="2" fill="#007AFF"/>
+                        <circle cx="3" cy="13" r="1.5" fill="#8E8E93"/>
+                        <circle cx="15" cy="13" r="1.5" fill="#8E8E93"/>
+                        <text x="22" y="8" font-family="SF Pro Text, -apple-system, system-ui" font-size="12" fill="white">Автоматический мониторинг рейсов</text>
+                        <text x="22" y="19" font-family="SF Pro Text, -apple-system, system-ui" font-size="12" fill="white">Минск-Островец</text>
+                    </g>
+                    
+                    <!-- Features list -->
+                    <g transform="translate(16, 60)">
+                        <!-- Feature 1 -->
+                        <circle cx="4" cy="4" r="2" fill="#34C759"/>
+                        <text x="12" y="7" font-family="SF Pro Text, -apple-system, system-ui" font-size="11" fill="white">Поиск по дате и времени</text>
+                        
+                        <!-- Feature 2 -->
+                        <g transform="translate(0, 16)">
+                            <text x="0" y="7" font-family="Apple Color Emoji" font-size="11">🔔</text>
+                            <text x="12" y="7" font-family="SF Pro Text, -apple-system, system-ui" font-size="11" fill="white">Уведомления каждые 5 минут</text>
+                        </g>
+                        
+                        <!-- Feature 3 -->
+                        <g transform="translate(0, 32)">
+                            <rect x="0" y="0" width="8" height="5" rx="1" ry="1" fill="#007AFF"/>
+                            <text x="12" y="4" font-family="SF Pro Text, -apple-system, system-ui" font-size="11" fill="white">Удобные кнопки</text>
+                        </g>
+                    </g>
+                    
+                    <!-- Start command -->
+                    <g transform="translate(16, 130)">
+                        <text x="0" y="12" font-family="SF Mono, Monaco, Consolas, monospace" font-size="12" fill="#007AFF">/start</text>
+                        <text x="40" y="12" font-family="SF Pro Text, -apple-system, system-ui" font-size="12" fill="#8E8E93">- начать работу</text>
+                    </g>
+                </g>
+                
+                <!-- Input area -->
+                <rect x="20" y="520" width="260" height="60" fill="#1C1C1E"/>
+                <rect x="30" y="535" width="180" height="30" rx="15" ry="15" fill="#2C2C2E" stroke="#48484A" stroke-width="1"/>
+                <text x="40" y="554" font-family="SF Pro Text, -apple-system, system-ui" font-size="14" fill="#8E8E93">Сообщение</text>
+                
+                <!-- Send button -->
+                <circle cx="235" cy="550" r="12" fill="#007AFF"/>
+                <path d="M231 550 L235 546 L239 550 L235 554 Z" fill="white"/>
+                
+                <!-- Home indicator -->
+                <rect x="130" y="570" width="40" height="3" rx="1.5" ry="1.5" fill="#48484A"/>
+            </svg>
+        </div>
+
         <div class="commands">
-            <h2>📋 Команды бота</h2>
+            <h2>� Команды бота</h2>
             <div class="command-list">
                 <div class="command">
                     <div class="command-name">/start</div>
-                    <p>Начать работу с ботом и получить главное меню</p>
+                    <p>Запустить бота и получить главное меню с быстрыми действиями</p>
                 </div>
                 
                 <div class="command">
                     <div class="command-name">/help</div>
-                    <p>Получить справку по использованию всех функций</p>
+                    <p>Интерактивная справка с подсказками и видеоинструкциями</p>
                 </div>
                 
                 <div class="command">
                     <div class="command-name">/status</div>
-                    <p>Проверить статус мониторинга и настройки уведомлений</p>
+                    <p>Проверить статус мониторинга и управление подписками</p>
                 </div>
             </div>
         </div>
 
         <div class="footer">
-            <h3>📞 Контакты</h3>
+            <h3>🤝 Контакты</h3>
             <p>
                 <strong>Разработчик:</strong> <a href="https://t.me/lokhotonkot">@lokhotonkot</a><br>
-                <strong>Бот:</strong> <a href="https://t.me/MarshrutochkaOst_bot">@MarshrutochkaOst_bot</a>
+                <strong>Официальный бот:</strong> <a href="https://t.me/MarshrutochkaOst_bot">@MarshrutochkaOst_bot</a>
             </p>
             
             <div class="privacy-link">
                 <p>
-                    📜 <a href="privacy-policy.html">Политика конфиденциальности</a>
+                    � <a href="privacy-policy.html">Политика конфиденциальности</a>
                 </p>
-                <p><small>Последнее обновление: 20 сентября 2025 г.</small></p>
+                <p><small>© 2025 Мониторинг маршруточки. Последнее обновление: 20 сентября 2025 г.</small></p>
             </div>
         </div>
     </div>
