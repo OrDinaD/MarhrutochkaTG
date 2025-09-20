@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг маршруточки - Telegram-бот</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .hero {
+            text-align: center;
+            padding: 60px 20px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .hero h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .hero p {
+            font-size: 1.3em;
+            color: #555;
+            margin-bottom: 30px;
+        }
+        
+        .telegram-btn {
+            display: inline-block;
+            background: #0088cc;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 50px;
+            font-size: 1.2em;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0,136,204,0.3);
+        }
+        
+        .telegram-btn:hover {
+            background: #006699;
+            transform: translateY(-2px);
+            box-shadow: 0 7px 20px rgba(0,136,204,0.4);
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .feature {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        
+        .feature:hover {
+            transform: translateY(-5px);
+        }
+        
+        .feature-icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+            display: block;
+        }
+        
+        .feature h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+        
+        .commands {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 40px;
+        }
+        
+        .commands h2 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 2em;
+        }
+        
+        .command-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .command {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .command-name {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #e74c3c;
+            font-size: 1.1em;
+        }
+        
+        .footer {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            margin-top: 40px;
+        }
+        
+        .footer a {
+            color: #3498db;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        .privacy-link {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2em;
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .features {
+                grid-template-columns: 1fr;
+            }
+            
+            .command-list {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="hero">
+            <h1><span>🚌</span> Мониторинг маршруточки</h1>
+            <p>Автоматический мониторинг рейсов Минск-Островец в Telegram</p>
+            <a href="https://t.me/MarshrutochkaOst_bot" class="telegram-btn">
+                📱 Запустить бота
+            </a>
+        </div>
+
+        <div class="features">
+            <div class="feature">
+                <span class="feature-icon">🔍</span>
+                <h3>Поиск по дате и времени</h3>
+                <p>Быстро находите нужные рейсы на любую дату. Удобная навигация по расписанию маршруток.</p>
+            </div>
+            
+            <div class="feature">
+                <span class="feature-icon">🔔</span>
+                <h3>Уведомления каждые 5 минут</h3>
+                <p>Получайте актуальную информацию о свободных местах автоматически, не нужно постоянно проверять.</p>
+            </div>
+            
+            <div class="feature">
+                <span class="feature-icon">📱</span>
+                <h3>Удобные кнопки</h3>
+                <p>Интуитивно понятный интерфейс с кнопками для быстрого выбора направления и времени поездки.</p>
+            </div>
+        </div>
+
+        <div class="commands">
+            <h2>📋 Команды бота</h2>
+            <div class="command-list">
+                <div class="command">
+                    <div class="command-name">/start</div>
+                    <p>Начать работу с ботом и получить главное меню</p>
+                </div>
+                
+                <div class="command">
+                    <div class="command-name">/help</div>
+                    <p>Получить справку по использованию всех функций</p>
+                </div>
+                
+                <div class="command">
+                    <div class="command-name">/status</div>
+                    <p>Проверить статус мониторинга и настройки уведомлений</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <h3>📞 Контакты</h3>
+            <p>
+                <strong>Разработчик:</strong> <a href="https://t.me/lokhotonkot">@lokhotonkot</a><br>
+                <strong>Бот:</strong> <a href="https://t.me/MarshrutochkaOst_bot">@MarshrutochkaOst_bot</a>
+            </p>
+            
+            <div class="privacy-link">
+                <p>
+                    📜 <a href="privacy-policy.html">Политика конфиденциальности</a>
+                </p>
+                <p><small>Последнее обновление: 20 сентября 2025 г.</small></p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
