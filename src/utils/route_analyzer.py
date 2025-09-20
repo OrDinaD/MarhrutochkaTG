@@ -123,6 +123,160 @@ class RouteAnalyzer:
         return "", []
     
     @classmethod
+    def calculate_minsk_smorgon_duration(cls, minsk_ostrovets_route: Dict) -> Optional[int]:
+        """
+        Вычисляет время поездки от Минска до Сморгони на основе полного маршрута Минск-Островец
+        
+        Args:
+            minsk_ostrovets_route: Словарь с данными маршрута Минск-Островец через Сморгонь
+            
+        Returns:
+            Optional[int]: Время в минутах от Минска до Сморгони или None если не удалось вычислить
+        """
+        try:
+            # Проверяем что это маршрут через Сморгонь
+            if not minsk_ostrovets_route.get('via_smorgon'):
+                return None
+            
+            # Получаем общее время поездки Минск-Островец
+            duration_str = minsk_ostrovets_route.get('duration', '')
+            total_duration = cls._parse_duration(duration_str)
+            
+            if not total_duration:
+                return None
+            
+            # Получаем время Сморгонь-Островец (из константы)
+            smorgon_ostrovets_duration = cls.TRAVEL_TIMES.get(("Сморгонь", "Островец"), 65)
+            
+            # Вычисляем время от Минска до Сморгони
+            minsk_smorgon_duration = total_duration - smorgon_ostrovets_duration
+            
+            # Проверяем разумность результата (должно быть в пределах 90-150 минут)
+            if 90 <= minsk_smorgon_duration <= 150:
+                return minsk_smorgon_duration
+            else:
+                # Если результат неразумный, возвращаем стандартное значение
+                return cls.TRAVEL_TIMES.get(("Минск", "Сморгонь"), 125)
+                
+        except Exception:
+            # В случае ошибки возвращаем стандартное значение
+            return cls.TRAVEL_TIMES.get(("Минск", "Сморгонь"), 125)
+
+    @classmethod
+    def get_average_minsk_smorgon_duration(cls, all_minsk_ostrovets_routes: List[Dict]) -> int:
+        """
+        Получает среднее время от Минска до Сморгони на основе реальных данных
+        
+        Args:
+            all_minsk_ostrovets_routes: Список всех маршрутов Минск-Островец
+            
+        Returns:
+            int: Средняя продолжительность в минутах (или стандартное значение если нет данных)
+        """
+        durations = []
+        
+        for route in all_minsk_ostrovets_routes:
+            duration = cls.calculate_minsk_smorgon_duration(route)
+            if duration:
+                durations.append(duration)
+        
+        if durations:
+            # Возвращаем среднее значение, округленное до ближайших 5 минут
+            average = sum(durations) / len(durations)
+            return round(average / 5) * 5
+        else:
+            # Если нет данных, возвращаем стандартное значение
+            return cls.TRAVEL_TIMES.get(("Минск", "Сморгонь"), 125)
+
+    @classmethod
+    def get_average_smorgon_ostrovets_duration(cls, all_minsk_ostrovets_routes: List[Dict]) -> int:
+        """
+        Получает среднюю продолжительность поездки от Сморгони до Островца на основе реальных данных
+        
+        Args:
+            all_minsk_ostrovets_routes: Список всех маршрутов Минск-Островец
+            
+        Returns:
+            int: Средняя продолжительность в минутах (или стандартное значение если нет данных)
+        """
+        durations = []
+        
+        for route in all_minsk_ostrovets_routes:
+            duration = cls.calculate_smorgon_ostrovets_duration(route)
+            if duration:
+                durations.append(duration)
+        
+        if durations:
+            # Возвращаем среднее значение, округленное до ближайших 5 минут
+            average = sum(durations) / len(durations)
+            return round(average / 5) * 5
+        else:
+            # Если нет данных, возвращаем стандартное значение
+            return cls.TRAVEL_TIMES.get(("Сморгонь", "Островец"), 65)
+
+    @classmethod
+    def calculate_smorgon_ostrovets_duration_from_routes(cls, all_minsk_ostrovets_routes: List[Dict]) -> Dict[str, int]:
+        """
+        Вычисляет реальное время от Сморгони до Островца на основе списка всех маршрутов Минск-Островец
+        
+        Args:
+            all_minsk_ostrovets_routes: Список всех маршрутов Минск-Островец
+            
+        Returns:
+            Dict[str, int]: Словарь с расчетами времени {route_id: duration_minutes}
+        """
+        results = {}
+        
+        for route in all_minsk_ostrovets_routes:
+            if route.get('via_smorgon'):
+                route_id = route.get('route_id', f"route_{route.get('departure_time', 'unknown')}")
+                duration = cls.calculate_smorgon_ostrovets_duration(route)
+                if duration:
+                    results[route_id] = duration
+        
+        return results
+
+    @classmethod
+    def calculate_smorgon_ostrovets_duration(cls, minsk_ostrovets_route: Dict) -> Optional[int]:
+        """
+        Вычисляет время поездки от Сморгони до Островца на основе полного маршрута Минск-Островец
+        
+        Args:
+            minsk_ostrovets_route: Словарь с данными маршрута Минск-Островец через Сморгонь
+            
+        Returns:
+            Optional[int]: Время в минутах от Сморгони до Островца или None если не удалось вычислить
+        """
+        try:
+            # Проверяем что это маршрут через Сморгонь
+            if not minsk_ostrovets_route.get('via_smorgon'):
+                return None
+            
+            # Получаем общее время поездки Минск-Островец
+            duration_str = minsk_ostrovets_route.get('duration', '')
+            total_duration = cls._parse_duration(duration_str)
+            
+            if not total_duration:
+                return None
+            
+            # Вычитаем время Минск-Сморгонь (из константы)
+            minsk_smorgon_duration = cls.TRAVEL_TIMES.get(("Минск", "Сморгонь"), 125)
+            
+            # Вычисляем время от Сморгони до Островца
+            smorgon_ostrovets_duration = total_duration - minsk_smorgon_duration
+            
+            # Проверяем разумность результата (должно быть в пределах 30-90 минут)
+            if 30 <= smorgon_ostrovets_duration <= 90:
+                return smorgon_ostrovets_duration
+            else:
+                # Если результат неразумный, возвращаем стандартное значение
+                return cls.TRAVEL_TIMES.get(("Сморгонь", "Островец"), 65)
+                
+        except Exception:
+            # В случае ошибки возвращаем стандартное значение
+            return cls.TRAVEL_TIMES.get(("Сморгонь", "Островец"), 65)
+
+    @classmethod
     def _parse_duration(cls, duration_str: str) -> Optional[int]:
         """Парсит строку длительности в минуты"""
         if not duration_str:
@@ -321,12 +475,13 @@ def format_route_with_intermediate_cities(route_detail: RouteDetail) -> str:
     return "\n".join(route_info)
 
 
-def generate_static_minsk_smorgon_ostrovets_schedule(search_date: str) -> List[Dict]:
+def generate_static_minsk_smorgon_ostrovets_schedule(search_date: str, real_routes_data: List[Dict] = None) -> List[Dict]:
     """
     Генерирует статическое расписание для маршрута Минск-Сморгонь-Островец
     
     Args:
         search_date: Дата поиска в формате YYYY-MM-DD
+        real_routes_data: Реальные данные маршрутов для расчета времени (опционально)
         
     Returns:
         List[Dict]: Список маршрутов с информацией о времени и ценах
@@ -340,27 +495,42 @@ def generate_static_minsk_smorgon_ostrovets_schedule(search_date: str) -> List[D
         "16:30", "18:00", "19:00", "21:00"
     ]
     
+    # Если есть реальные данные, используем их для расчета времени
+    if real_routes_data:
+        avg_minsk_smorgon_duration = RouteAnalyzer.get_average_minsk_smorgon_duration(real_routes_data)
+        avg_smorgon_ostrovets_duration = RouteAnalyzer.get_average_smorgon_ostrovets_duration(real_routes_data)
+    else:
+        # Используем стандартные значения
+        avg_minsk_smorgon_duration = RouteAnalyzer.TRAVEL_TIMES.get(("Минск", "Сморгонь"), 125)
+        avg_smorgon_ostrovets_duration = RouteAnalyzer.TRAVEL_TIMES.get(("Сморгонь", "Островец"), 65)
+    
     routes = []
     current_time = datetime.now()
     search_datetime = datetime.strptime(search_date, "%Y-%m-%d")
     is_today = search_datetime.date() == current_time.date()
     
     for i, departure_time in enumerate(minsk_departure_times, 1):
-        # Вычисляем время прибытия в Сморгонь (1 час 40 минут)
+        # Вычисляем время прибытия в Сморгонь (используем динамические данные)
         dep_hour, dep_minute = map(int, departure_time.split(':'))
         dep_dt = datetime.now().replace(hour=dep_hour, minute=dep_minute, second=0)
-        smorgon_arrival_dt = dep_dt + timedelta(minutes=100)  # 1ч 40мин
+        smorgon_arrival_dt = dep_dt + timedelta(minutes=avg_minsk_smorgon_duration)
         
         # Вычисляем время отправления из Сморгони в Островец (через 5 минут)
         smorgon_departure_dt = smorgon_arrival_dt + timedelta(minutes=5)
         
-        # Вычисляем время прибытия в Островец (45 минут от Сморгони)
-        ostrovets_arrival_dt = smorgon_departure_dt + timedelta(minutes=45)
+        # Вычисляем время прибытия в Островец (используем динамические данные)
+        ostrovets_arrival_dt = smorgon_departure_dt + timedelta(minutes=avg_smorgon_ostrovets_duration)
         
         # Если ищем на сегодня, пропускаем уже ушедшие рейсы
         # Проверяем, что рейс еще не дошел до Островца
         if is_today and ostrovets_arrival_dt.time() <= current_time.time():
             continue
+        
+        # Рассчитываем общую продолжительность
+        total_duration = avg_minsk_smorgon_duration + 5 + avg_smorgon_ostrovets_duration
+        total_hours = total_duration // 60
+        total_minutes = total_duration % 60
+        duration_str = f"{total_hours}ч {total_minutes}мин" if total_hours > 0 else f"{total_minutes}мин"
         
         route = {
             'route_id': f'static_minsk_smorgon_ostrovets_{i}',
@@ -368,14 +538,16 @@ def generate_static_minsk_smorgon_ostrovets_schedule(search_date: str) -> List[D
             'to_city': 'Островец',
             'departure_time': departure_time,
             'arrival_time': ostrovets_arrival_dt.strftime("%H:%M"),
-            'duration': '3ч 10мин',
+            'duration': duration_str,
             'price_str': '8,00 руб.',
             'available_seats': None,  # Места не ограничены
             'carrier': 'Маршрутное такси',
             'via_smorgon': True,
             'smorgon_arrival': smorgon_arrival_dt.strftime("%H:%M"),
             'smorgon_departure': smorgon_departure_dt.strftime("%H:%M"),
-            'is_static_route': True
+            'is_static_route': True,
+            'calculated_minsk_smorgon_minutes': avg_minsk_smorgon_duration,
+            'calculated_smorgon_ostrovets_minutes': avg_smorgon_ostrovets_duration
         }
         routes.append(route)
     

@@ -257,8 +257,12 @@ class FinalMarshrutochkaParser:
         
         # Используем статическое расписание для маршрута через Сморгонь
         try:
-            static_routes = generate_static_minsk_smorgon_ostrovets_schedule(date)
-            logger.info(f"Сгенерировано {len(static_routes)} статических маршрутов Минск-Островец через Сморгонь")
+            # Сначала получаем реальные данные для улучшения расчетов времени
+            real_routes = await self.search_routes("Минск", "Островец", date)
+            
+            # Передаем реальные данные в генератор статического расписания
+            static_routes = generate_static_minsk_smorgon_ostrovets_schedule(date, real_routes)
+            logger.info(f"Сгенерировано {len(static_routes)} статических маршрутов Минск-Островец через Сморгонь с учетом реальных данных")
             return static_routes
         except Exception as e:
             logger.error(f"Ошибка генерации статического расписания: {e}")
@@ -370,6 +374,11 @@ class FinalMarshrutochkaParser:
         all_routes = await self.search_routes("Минск", "Островец", date)
         smorgon_routes = []
         
+        # Получаем среднее время от Сморгони до Островца и от Минска до Сморгони на основе реальных данных
+        from .route_analyzer import RouteAnalyzer
+        avg_smorgon_ostrovets_duration = RouteAnalyzer.get_average_smorgon_ostrovets_duration(all_routes)
+        avg_minsk_smorgon_duration = RouteAnalyzer.get_average_minsk_smorgon_duration(all_routes)
+        
         for route in all_routes:
             if route.get('via_smorgon') or "Сморгонь" in route.get('route_description', ''):
                 # Создаем копию маршрута для Сморгонь-Островец
@@ -381,19 +390,47 @@ class FinalMarshrutochkaParser:
                 departure_time = route.get('departure_time')
                 if departure_time and arrival_time:
                     try:
-                        from .route_analyzer import RouteAnalyzer
-                        # Вычисляем время отправления из Сморгони (отправление из Минска + ~2ч 5мин)
+                        # Вычисляем динамическое время от Сморгони до Островца для этого конкретного маршрута
+                        dynamic_smorgon_ostrovets_duration = RouteAnalyzer.calculate_smorgon_ostrovets_duration(route)
+                        dynamic_minsk_smorgon_duration = RouteAnalyzer.calculate_minsk_smorgon_duration(route)
+                        
+                        # Используем динамические данные если доступны, иначе средние
+                        if dynamic_smorgon_ostrovets_duration:
+                            duration_minutes = dynamic_smorgon_ostrovets_duration
+                        else:
+                            duration_minutes = avg_smorgon_ostrovets_duration
+                            
+                        if dynamic_minsk_smorgon_duration:
+                            minsk_smorgon_time = dynamic_minsk_smorgon_duration
+                        else:
+                            minsk_smorgon_time = avg_minsk_smorgon_duration
+                        
+                        # Вычисляем время отправления из Сморгони (отправление из Минска + время до Сморгони)
                         from datetime import datetime, timedelta
                         departure_dt = datetime.strptime(departure_time, "%H:%M")
-                        smorgon_departure_dt = departure_dt + timedelta(minutes=125)  # ~2ч 5мин от Минска до Сморгони
+                        smorgon_departure_dt = departure_dt + timedelta(minutes=minsk_smorgon_time)
                         smorgon_route['departure_time'] = smorgon_departure_dt.strftime("%H:%M")
-                        # Обновляем длительность
+                        
+                        # Обновляем длительность на основе реальных данных
+                        hours = duration_minutes // 60
+                        minutes = duration_minutes % 60
+                        if hours > 0:
+                            smorgon_route['duration'] = f"~{hours} ч {minutes} мин"
+                        else:
+                            smorgon_route['duration'] = f"~{minutes} мин"
+                            
+                        # Сохраняем рассчитанные времена для отладки
+                        smorgon_route['calculated_duration_minutes'] = duration_minutes
+                        smorgon_route['calculated_minsk_smorgon_minutes'] = minsk_smorgon_time
+                        
+                    except Exception as e:
+                        logger.error(f"Ошибка при расчете времени для маршрута Сморгонь-Островец: {e}")
+                        # Fallback к стандартному времени
                         smorgon_route['duration'] = "~1 ч 5 мин"
-                    except:
-                        pass
                 
                 smorgon_routes.append(smorgon_route)
         
+        logger.info(f"Создано {len(smorgon_routes)} маршрутов Сморгонь-Островец с динамически рассчитанным временем")
         return smorgon_routes
     
     async def get_all_routes(self, date: str) -> Dict[str, List[Dict]]:

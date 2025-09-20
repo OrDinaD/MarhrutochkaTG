@@ -1394,7 +1394,14 @@ async def handle_search_with_direction(update: Update, context: ContextTypes.DEF
                             
                             message_parts.append(f"{i}. Минск {departure_time}")
                             if smorgon_arrival and smorgon_departure:
-                                smorgon_duration = "45 мин"  # Время от Сморгони до Островца
+                                # Используем динамически рассчитанное время или стандартное
+                                smorgon_duration_minutes = route.get('calculated_smorgon_ostrovets_minutes', 65)
+                                smorgon_hours = smorgon_duration_minutes // 60
+                                smorgon_mins = smorgon_duration_minutes % 60
+                                if smorgon_hours > 0:
+                                    smorgon_duration = f"{smorgon_hours} ч {smorgon_mins} мин"
+                                else:
+                                    smorgon_duration = f"{smorgon_mins} мин"
                                 message_parts.append(f"   {smorgon_departure} → {arrival_time} ({smorgon_duration})")
                             else:
                                 message_parts.append(f"   → {arrival_time} ({duration})")
@@ -1543,7 +1550,14 @@ async def perform_route_search(query, user_id: int, from_city: str, to_city: str
                         
                         message_parts.append(f"{i}. Минск {departure_time}")
                         if smorgon_arrival and smorgon_departure:
-                            smorgon_duration = "45 мин"  # Время от Сморгони до Островца
+                            # Используем динамически рассчитанное время или стандартное
+                            smorgon_duration_minutes = route.get('calculated_smorgon_ostrovets_minutes', 65)
+                            smorgon_hours = smorgon_duration_minutes // 60
+                            smorgon_mins = smorgon_duration_minutes % 60
+                            if smorgon_hours > 0:
+                                smorgon_duration = f"{smorgon_hours} ч {smorgon_mins} мин"
+                            else:
+                                smorgon_duration = f"{smorgon_mins} мин"
                             message_parts.append(f"   {smorgon_departure} → {arrival_time} ({smorgon_duration})")
                         else:
                             message_parts.append(f"   → {arrival_time} ({duration})")
@@ -2128,7 +2142,14 @@ def format_routes_message(routes_data, date, direction='all'):
                 
                 section.append(f"{i}. Минск {departure_time}")
                 if smorgon_arrival and smorgon_departure:
-                    smorgon_duration = "45 мин"  # Время от Сморгони до Островца
+                    # Используем динамически рассчитанное время или стандартное
+                    smorgon_duration_minutes = route.get('calculated_smorgon_ostrovets_minutes', 65)
+                    smorgon_hours = smorgon_duration_minutes // 60
+                    smorgon_mins = smorgon_duration_minutes % 60
+                    if smorgon_hours > 0:
+                        smorgon_duration = f"{smorgon_hours} ч {smorgon_mins} мин"
+                    else:
+                        smorgon_duration = f"{smorgon_mins} мин"
                     section.append(f"   {smorgon_departure} → {arrival_time} ({smorgon_duration})")
                 else:
                     section.append(f"   → {arrival_time} ({duration})")
