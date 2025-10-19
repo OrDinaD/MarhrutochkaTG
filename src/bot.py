@@ -718,9 +718,11 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             await safe_edit_message(
                 query,
-                f"🔍 **Поиск маршрутов...**\n\n"
-                f"📍 **Маршрут:** {from_city} → {to_city}\n"
-                f"📅 **Дата:** {selected_date}",
+                (
+                    f"🔍 **Поиск маршрутов...**\n\n"
+                    f"📍 **Маршрут:** {from_city} → {to_city}\n"
+                    f"📅 **Дата:** {selected_date}"
+                ),
                 parse_mode='Markdown'
             )
             
@@ -731,8 +733,10 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
             # Обычный поток - выбираем направление
             await safe_edit_message(
                 query,
-                f"✅ **Выбрана дата:** {selected_date}\n\n"
-                "🛣️ **Шаг 2:** Выберите направление:",
+                (
+                    f"✅ **Выбрана дата:** {selected_date}\n\n"
+                    "🛣️ **Шаг 2:** Выберите направление:"
+                ),
                 reply_markup=get_direction_keyboard(),
                 parse_mode='Markdown'
             )
@@ -742,9 +746,11 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif data == "custom_date":
         await safe_edit_message(
                 query,
-            "📅 **Введите дату в формате YYYY-MM-DD**\n\n"
-            "Например: `2025-01-15`\n\n"
-            "Или нажмите кнопку ниже для возврата:",
+            (
+                "📅 **Введите дату в формате YYYY-MM-DD**\n\n"
+                "Например: `2025-01-15`\n\n"
+                "Или нажмите кнопку ниже для возврата:"
+            ),
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔙 Выбрать из списка", callback_data="back_to_date_list")
             ]]),
@@ -767,10 +773,12 @@ async def handle_date_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         await safe_edit_message(
                 query,
-            "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
-            "🛣️ **Направления:** Минск ⇄ Островец\n"
-            "🌐 **Источник:** билет.маршруточка.бел\n\n"
-            "💡 **Выберите действие:**",
+            (
+                "🚌 **Добро пожаловать в бот мониторинга маршруточки!**\n\n"
+                "🛣️ **Направления:** Минск ⇄ Островец\n"
+                "🌐 **Источник:** билет.маршруточка.бел\n\n"
+                "💡 **Выберите действие:**"
+            ),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
