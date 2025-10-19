@@ -13,8 +13,13 @@ from pathlib import Path
 # Добавляем src в путь для импортов
 PROJECT_ROOT = Path(__file__).parent.parent
 SRC_PATH = PROJECT_ROOT / "src"
-if str(SRC_PATH) not in sys.path:
-    sys.path.insert(0, str(SRC_PATH))
+
+# Добавляем как саму папку src, так и корень проекта, чтобы корректно работал импорт
+# как "from src...", так и "import utils" при прямом выполнении модулей.
+for path in (PROJECT_ROOT, SRC_PATH):
+    str_path = str(path)
+    if str_path not in sys.path:
+        sys.path.insert(0, str_path)
 
 # Создаём папки для тестов если их нет
 os.makedirs(PROJECT_ROOT / "data" / "logs", exist_ok=True)
