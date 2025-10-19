@@ -1586,8 +1586,6 @@ async def perform_route_search(query, user_id: int, from_city: str, to_city: str
                         if route.get('via_smorgon') and not (from_city == "Минск" and to_city == "Островец"):
                             message_parts.append(f"   🛣️ *через Сморгонь*")
                         elif route.get('via_oshmiany'):
-                            message_parts.append(f"   🛣️ *через Сморгонь*")
-                        elif route.get('via_oshmiany'):
                             message_parts.append(f"   🛣️ *через Ошмяны*")
                     
                     message_parts.append("")  # Пустая строка между маршрутами
