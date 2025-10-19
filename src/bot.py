@@ -11,8 +11,6 @@ import json
 import sys
 import re
 import traceback
-import inspect
-import requests
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from pathlib import Path
@@ -29,6 +27,7 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
+    PicklePersistence,
     filters,
     ContextTypes,
     ConversationHandler,
@@ -96,8 +95,7 @@ def safe_log_admin(message: str, data: dict = None, level: str = "info"):
 active_callbacks = {}  # {user_id: {'query_id': str, 'start_time': datetime, 'handler': str}}
 callback_timeout_seconds = 45  # Таймаут для застрявших callbacks
 CLEANUP_JOB_NAME = "cleanup_stuck_callbacks"
-restart_task = None  # Задача, отвечающая за перезапуск процесса
-restart_requested_at: Optional[datetime] = None  # Время запроса перезапуска
+RESTART_JOB_NAME = "admin_restart_bot"
 
 async def track_callback_start(user_id: int, query_id: str, handler_name: str):
     """Отслеживание начала callback обработки"""
@@ -147,76 +145,6 @@ async def emergency_conversation_reset(user_id: int, context: ContextTypes.DEFAU
         
     except Exception as e:
         logger.error(f"❌ [{user_id}] Ошибка при экстренном сбросе: {e}")
-
-
-async def schedule_bot_restart(delay_seconds: float = 3.0) -> Dict[str, Any]:
-    """Запланировать перезапуск бота с небольшой задержкой.
-    
-    Args:
-        delay_seconds: время до фактического перезапуска
-    
-    Returns:
-        Информация о результате планирования
-    """
-    global restart_task, restart_requested_at
-    
-    if restart_task and not restart_task.done():
-        return {
-            "success": False,
-            "reason": "already_scheduled",
-            "requested_at": restart_requested_at.isoformat() if restart_requested_at else None
-        }
-    
-    restart_requested_at = datetime.now()
-    restart_eta = restart_requested_at + timedelta(seconds=delay_seconds)
-    
-    safe_log_system("Перезапуск бота запланирован администратором", {
-        "requested_at": restart_requested_at.isoformat(),
-        "scheduled_for": restart_eta.isoformat(),
-        "delay_seconds": delay_seconds
-    })
-    
-    async def _restart():
-        global restart_task, restart_requested_at
-        try:
-            await asyncio.sleep(delay_seconds)
-            
-            safe_log_system("Выполняем перезапуск бота", {
-                "requested_at": restart_requested_at.isoformat() if restart_requested_at else None
-            })
-            
-            if application:
-                try:
-                    stop_result = application.stop()
-                    if inspect.isawaitable(stop_result):
-                        await stop_result
-                except Exception as stop_error:
-                    logger.error(f"Ошибка остановки приложения перед перезапуском: {stop_error}", exc_info=True)
-                
-                try:
-                    shutdown_result = application.shutdown()
-                    if inspect.isawaitable(shutdown_result):
-                        await shutdown_result
-                except Exception as shutdown_error:
-                    logger.error(f"Ошибка завершения приложения перед перезапуском: {shutdown_error}", exc_info=True)
-            
-            logging.shutdown()
-            os.execv(sys.executable, [sys.executable] + sys.argv)
-        except Exception as restart_error:
-            safe_log_system("Ошибка перезапуска бота", {"error": str(restart_error)}, level="error")
-            logger.error("Ошибка при перезапуске бота", exc_info=True)
-        finally:
-            restart_task = None
-            restart_requested_at = None
-    
-    restart_task = asyncio.create_task(_restart())
-    
-    return {
-        "success": True,
-        "requested_at": restart_requested_at.isoformat(),
-        "scheduled_for": restart_eta.isoformat(),
-        "delay_seconds": delay_seconds
-    }
 
 
 async def restart_monitoring_scheduler() -> Dict[str, Any]:
@@ -288,6 +216,15 @@ async def restart_monitoring_scheduler() -> Dict[str, Any]:
         "monitors_restored": restored_monitors,
         "failures": failures
     }
+
+
+async def trigger_bot_restart(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Останавливает приложение для последующего перезапуска."""
+    restart_info = context.application.bot_data.setdefault("restart_info", {})
+    restart_info.setdefault("pending", True)
+    restart_info["triggered_at"] = datetime.now().isoformat()
+    safe_log_system("Перезапуск бота инициирован", restart_info)
+    context.application.stop_running()
 
 
 # Игнорируем предупреждения от python-telegram-bot о per_message
@@ -1938,11 +1875,10 @@ async def system_health_command(update: Update, context: ContextTypes.DEFAULT_TY
         disk = psutil.disk_usage('/')
         
         # Проверка сетевого подключения
-        network_ok = True
         try:
-            response = requests.get('https://api.telegram.org', timeout=10)
-            network_ok = response.status_code == 200
-        except:
+            await context.bot.get_me()
+            network_ok = True
+        except Exception:
             network_ok = False
         
         # Проверка файловой системы
@@ -2902,35 +2838,51 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
     
     elif action == "admin_restart_bot_confirm":
         # Планирование перезапуска бота
-        restart_result = await schedule_bot_restart()
         keyboard = [
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
         ]
         
-        if restart_result.get("success"):
-            requested_at_iso = restart_result.get("requested_at")
-            scheduled_for_iso = restart_result.get("scheduled_for")
+        delay_seconds = 3
+        restart_info = context.application.bot_data.get("restart_info", {})
+        pending = restart_info.get("pending", False)
+        
+        if pending:
+            requested_at_iso = restart_info.get("requested_at")
+            scheduled_for_iso = restart_info.get("scheduled_for")
             requested_at = datetime.fromisoformat(requested_at_iso).strftime('%d.%m.%Y %H:%M:%S') if requested_at_iso else "неизвестно"
             scheduled_time = datetime.fromisoformat(scheduled_for_iso).strftime('%d.%m.%Y %H:%M:%S') if scheduled_for_iso else "неизвестно"
-            delay_seconds = int(restart_result.get("delay_seconds", 0))
-            
-            message_text = (
-                "🔁 **ПЕРЕЗАГРУЗКА БОТА**\n\n"
-                "✅ Перезапуск запланирован.\n"
-                f"🕒 Запрос: {requested_at}\n"
-                f"🚀 Ожидаемое время перезапуска: {scheduled_time}\n"
-                f"⏳ Задержка: {delay_seconds} сек.\n\n"
-                "Бот автоматически завершит работу и перезапустится."
-            )
-        else:
-            requested_at_iso = restart_result.get("requested_at")
-            requested_at = datetime.fromisoformat(requested_at_iso).strftime('%d.%m.%Y %H:%M:%S') if requested_at_iso else "неизвестно"
-            reason = restart_result.get("reason", "unknown")
             
             message_text = (
                 "⚠️ **ПЕРЕЗАГРУЗКА УЖЕ ЗАПЛАНИРОВАНА**\n\n"
                 f"🕒 Запрос: {requested_at}\n"
-                f"📌 Причина блокировки: {reason}"
+                f"🚀 Ожидаемое время: {scheduled_time}"
+            )
+        else:
+            requested_at = datetime.now()
+            scheduled_for = requested_at + timedelta(seconds=delay_seconds)
+            context.application.bot_data["restart_info"] = {
+                "pending": True,
+                "requested_at": requested_at.isoformat(),
+                "scheduled_for": scheduled_for.isoformat(),
+                "delay_seconds": delay_seconds
+            }
+            
+            if context.application.job_queue:
+                for existing_job in context.application.job_queue.get_jobs_by_name(RESTART_JOB_NAME):
+                    existing_job.schedule_removal()
+                context.application.job_queue.run_once(
+                    trigger_bot_restart,
+                    when=delay_seconds,
+                    name=RESTART_JOB_NAME
+                )
+            
+            message_text = (
+                "🔁 **ПЕРЕЗАГРУЗКА БОТА**\n\n"
+                "✅ Перезапуск запланирован.\n"
+                f"🕒 Запрос: {requested_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
+                f"🚀 Ожидаемое время перезапуска: {scheduled_for.strftime('%d.%m.%Y %H:%M:%S')}\n"
+                f"⏳ Задержка: {delay_seconds} сек.\n\n"
+                "Бот автоматически завершит работу и перезапустится."
             )
         
         await safe_edit_message(
@@ -3118,7 +3070,7 @@ def register_handlers(application):
 
 def main():
     """Главная функция запуска бота"""
-    global application, admin_panel, bot_start_time
+    global application, admin_panel, bot_start_time, active_monitors, user_data_store
     
     # Записываем время запуска
     bot_start_time = datetime.now()
@@ -3161,8 +3113,10 @@ def main():
         "environment": "railway" if os.getenv('RAILWAY_SERVICE_NAME') else "local"
     })
     
-    # Создаем приложение
-    application = Application.builder().token(token).build()
+    # Создаем приложение с постоянным хранилищем
+    persistence_path = os.path.join(DATA_DIR, 'bot_state.pickle')
+    persistence = PicklePersistence(filepath=persistence_path)
+    application = Application.builder().token(token).persistence(persistence).build()
     
     try:
         # Регистрируем обработчики
@@ -3171,6 +3125,10 @@ def main():
         # Получаем job_queue
         global job_queue
         job_queue = application.job_queue
+        
+        # Сопоставляем состояние с persistence
+        active_monitors = application.bot_data.setdefault("active_monitors", {})
+        user_data_store = application.bot_data.setdefault("user_data_store", {})
         
         # Загружаем существующие мониторинги и сессии
         load_active_monitors()
@@ -3181,7 +3139,7 @@ def main():
             cleanup_stuck_callbacks,
             interval=30,  # Проверка каждые 30 секунд
             first=10,     # Первый запуск через 10 секунд
-            name="cleanup_stuck_callbacks"
+            name=CLEANUP_JOB_NAME
         )
         
         safe_log_bot("Данные восстановлены", {
@@ -3210,6 +3168,13 @@ def main():
         # Запускаем бота (планировщик запустится автоматически)
         safe_log_bot("Бот запущен успешно", {"status": "running"})
         application.run_polling(drop_pending_updates=True)
+        
+        restart_info = application.bot_data.get("restart_info", {})
+        if restart_info.get("pending"):
+            safe_log_system("Перезапуск бота: выполняем рестарт процесса", restart_info)
+            restart_info["pending"] = False
+            logging.shutdown()
+            os.execl(sys.executable, sys.executable, *sys.argv)
         
     except Conflict:
         safe_log_bot("Конфликт: бот уже запущен", {"error": "conflict"}, level="error")

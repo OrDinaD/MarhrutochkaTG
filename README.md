@@ -109,6 +109,9 @@ source venv/bin/activate  # macOS/Linux
 # Установка зависимостей
 pip install -r requirements.txt
 
+# Для запуска тестов и утилит разработчика
+pip install -r requirements.dev.txt
+
 # Настройка окружения
 cp .env.example .env
 # Отредактируйте .env с вашими токенами
