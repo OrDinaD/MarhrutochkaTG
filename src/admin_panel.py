@@ -30,6 +30,7 @@ class AdminPanel:
             [InlineKeyboardButton("🔍 Поиск пользователя", callback_data="admin_search_user")],
             [InlineKeyboardButton("📋 Логи системы", callback_data="admin_system_logs")],
             [InlineKeyboardButton("⚙️ Настройки бота", callback_data="admin_bot_settings")],
+            [InlineKeyboardButton("🔁 Перезагрузить бота", callback_data="admin_restart_bot")],
             [InlineKeyboardButton("🚨 Экстренные функции", callback_data="admin_emergency")],
             [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
         ]
@@ -265,6 +266,16 @@ class AdminPanel:
             [InlineKeyboardButton("📤 Экспорт данных", callback_data="admin_export_data")],
             [InlineKeyboardButton("📥 Импорт данных", callback_data="admin_import_data")],
             [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+    
+    def get_restart_confirmation_keyboard(self) -> InlineKeyboardMarkup:
+        """Возвращает клавиатуру подтверждения перезапуска бота"""
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Подтвердить", callback_data="admin_restart_bot_confirm"),
+                InlineKeyboardButton("❌ Отмена", callback_data="admin_panel")
+            ]
         ]
         return InlineKeyboardMarkup(keyboard)
     

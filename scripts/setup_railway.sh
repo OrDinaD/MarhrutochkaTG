@@ -90,15 +90,15 @@ setup_environment_variables() {
     # Проверяем существующие переменные
     existing_vars=$(railway variables --json 2>/dev/null || echo "[]")
     
-    # BOT_TOKEN
-    if echo "$existing_vars" | grep -q "BOT_TOKEN"; then
-        print_status "BOT_TOKEN уже настроен"
+    # TELEGRAM_BOT_TOKEN
+    if echo "$existing_vars" | grep -q "TELEGRAM_BOT_TOKEN"; then
+        print_status "TELEGRAM_BOT_TOKEN уже настроен"
     else
-        print_warning "BOT_TOKEN не найден"
+        print_warning "TELEGRAM_BOT_TOKEN не найден"
         read -p "Введите токен бота: " bot_token
         if [ ! -z "$bot_token" ]; then
-            railway variables set BOT_TOKEN="$bot_token"
-            print_status "BOT_TOKEN установлен"
+            railway variables set TELEGRAM_BOT_TOKEN="$bot_token"
+            print_status "TELEGRAM_BOT_TOKEN установлен"
         fi
     fi
     

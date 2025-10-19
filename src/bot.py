@@ -11,9 +11,10 @@ import json
 import sys
 import re
 import traceback
+import inspect
 import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -94,6 +95,9 @@ def safe_log_admin(message: str, data: dict = None, level: str = "info"):
 # Глобальный мониторинг состояний callback queries
 active_callbacks = {}  # {user_id: {'query_id': str, 'start_time': datetime, 'handler': str}}
 callback_timeout_seconds = 45  # Таймаут для застрявших callbacks
+CLEANUP_JOB_NAME = "cleanup_stuck_callbacks"
+restart_task = None  # Задача, отвечающая за перезапуск процесса
+restart_requested_at: Optional[datetime] = None  # Время запроса перезапуска
 
 async def track_callback_start(user_id: int, query_id: str, handler_name: str):
     """Отслеживание начала callback обработки"""
@@ -144,6 +148,146 @@ async def emergency_conversation_reset(user_id: int, context: ContextTypes.DEFAU
     except Exception as e:
         logger.error(f"❌ [{user_id}] Ошибка при экстренном сбросе: {e}")
 
+
+async def schedule_bot_restart(delay_seconds: float = 3.0) -> Dict[str, Any]:
+    """Запланировать перезапуск бота с небольшой задержкой.
+    
+    Args:
+        delay_seconds: время до фактического перезапуска
+    
+    Returns:
+        Информация о результате планирования
+    """
+    global restart_task, restart_requested_at
+    
+    if restart_task and not restart_task.done():
+        return {
+            "success": False,
+            "reason": "already_scheduled",
+            "requested_at": restart_requested_at.isoformat() if restart_requested_at else None
+        }
+    
+    restart_requested_at = datetime.now()
+    restart_eta = restart_requested_at + timedelta(seconds=delay_seconds)
+    
+    safe_log_system("Перезапуск бота запланирован администратором", {
+        "requested_at": restart_requested_at.isoformat(),
+        "scheduled_for": restart_eta.isoformat(),
+        "delay_seconds": delay_seconds
+    })
+    
+    async def _restart():
+        global restart_task, restart_requested_at
+        try:
+            await asyncio.sleep(delay_seconds)
+            
+            safe_log_system("Выполняем перезапуск бота", {
+                "requested_at": restart_requested_at.isoformat() if restart_requested_at else None
+            })
+            
+            if application:
+                try:
+                    stop_result = application.stop()
+                    if inspect.isawaitable(stop_result):
+                        await stop_result
+                except Exception as stop_error:
+                    logger.error(f"Ошибка остановки приложения перед перезапуском: {stop_error}", exc_info=True)
+                
+                try:
+                    shutdown_result = application.shutdown()
+                    if inspect.isawaitable(shutdown_result):
+                        await shutdown_result
+                except Exception as shutdown_error:
+                    logger.error(f"Ошибка завершения приложения перед перезапуском: {shutdown_error}", exc_info=True)
+            
+            logging.shutdown()
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except Exception as restart_error:
+            safe_log_system("Ошибка перезапуска бота", {"error": str(restart_error)}, level="error")
+            logger.error("Ошибка при перезапуске бота", exc_info=True)
+        finally:
+            restart_task = None
+            restart_requested_at = None
+    
+    restart_task = asyncio.create_task(_restart())
+    
+    return {
+        "success": True,
+        "requested_at": restart_requested_at.isoformat(),
+        "scheduled_for": restart_eta.isoformat(),
+        "delay_seconds": delay_seconds
+    }
+
+
+async def restart_monitoring_scheduler() -> Dict[str, Any]:
+    """Перезапустить планировщик мониторингов и восстановить задания."""
+    if not job_queue:
+        safe_log_system("Попытка перезапуска планировщика без job_queue", level="warning")
+        return {
+            "success": False,
+            "reason": "job_queue_unavailable"
+        }
+    
+    removed_jobs = 0
+    failures: List[Dict[str, Any]] = []
+    
+    try:
+        for job in list(job_queue.jobs()):
+            job.schedule_removal()
+            removed_jobs += 1
+    except Exception as removal_error:
+        safe_log_system("Ошибка очистки job queue перед перезапуском", {
+            "error": str(removal_error)
+        }, level="error")
+        logger.error("Ошибка при очистке job queue", exc_info=True)
+        return {
+            "success": False,
+            "reason": "job_cleanup_failed",
+            "error": str(removal_error)
+        }
+    
+    # Даём планировщику возможность применить удаления
+    await asyncio.sleep(0)
+    
+    # Восстанавливаем системные задачи
+    job_queue.run_repeating(
+        cleanup_stuck_callbacks,
+        interval=30,
+        first=10,
+        name=CLEANUP_JOB_NAME
+    )
+    
+    restored_monitors = 0
+    for user_id in list(active_monitors.keys()):
+        try:
+            job_queue.run_repeating(
+                check_routes_for_user,
+                interval=300,
+                first=10,
+                name=f"monitor_{user_id}",
+                data=user_id
+            )
+            restored_monitors += 1
+        except Exception as monitor_error:
+            failure_info = {
+                "user_id": user_id,
+                "error": str(monitor_error)
+            }
+            failures.append(failure_info)
+            safe_log_bot("Ошибка восстановления мониторинга при перезапуске планировщика", failure_info, level="error")
+    
+    safe_log_system("Планировщик мониторингов перезапущен", {
+        "jobs_removed": removed_jobs,
+        "monitors_restored": restored_monitors,
+        "failures": len(failures)
+    })
+    
+    return {
+        "success": len(failures) == 0,
+        "jobs_removed": removed_jobs,
+        "monitors_restored": restored_monitors,
+        "failures": failures
+    }
 
 
 # Игнорируем предупреждения от python-telegram-bot о per_message
@@ -2741,6 +2885,98 @@ async def handle_admin_functions(update: Update, context: ContextTypes.DEFAULT_T
         await safe_edit_message(
                 query,
             settings_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_restart_bot":
+        # Подтверждение перезапуска бота
+        await safe_edit_message(
+                query,
+            "🔁 **ПЕРЕЗАГРУЗКА БОТА**\n\n"
+            "⚠️ После подтверждения бот будет остановлен и автоматически запущен заново.\n"
+            "Активные мониторинги восстановятся после перезапуска.",
+            reply_markup=admin_panel.get_restart_confirmation_keyboard(),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_restart_bot_confirm":
+        # Планирование перезапуска бота
+        restart_result = await schedule_bot_restart()
+        keyboard = [
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        if restart_result.get("success"):
+            requested_at_iso = restart_result.get("requested_at")
+            scheduled_for_iso = restart_result.get("scheduled_for")
+            requested_at = datetime.fromisoformat(requested_at_iso).strftime('%d.%m.%Y %H:%M:%S') if requested_at_iso else "неизвестно"
+            scheduled_time = datetime.fromisoformat(scheduled_for_iso).strftime('%d.%m.%Y %H:%M:%S') if scheduled_for_iso else "неизвестно"
+            delay_seconds = int(restart_result.get("delay_seconds", 0))
+            
+            message_text = (
+                "🔁 **ПЕРЕЗАГРУЗКА БОТА**\n\n"
+                "✅ Перезапуск запланирован.\n"
+                f"🕒 Запрос: {requested_at}\n"
+                f"🚀 Ожидаемое время перезапуска: {scheduled_time}\n"
+                f"⏳ Задержка: {delay_seconds} сек.\n\n"
+                "Бот автоматически завершит работу и перезапустится."
+            )
+        else:
+            requested_at_iso = restart_result.get("requested_at")
+            requested_at = datetime.fromisoformat(requested_at_iso).strftime('%d.%m.%Y %H:%M:%S') if requested_at_iso else "неизвестно"
+            reason = restart_result.get("reason", "unknown")
+            
+            message_text = (
+                "⚠️ **ПЕРЕЗАГРУЗКА УЖЕ ЗАПЛАНИРОВАНА**\n\n"
+                f"🕒 Запрос: {requested_at}\n"
+                f"📌 Причина блокировки: {reason}"
+            )
+        
+        await safe_edit_message(
+                query,
+            message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif action == "admin_restart_scheduler":
+        # Перезапуск планировщика мониторингов
+        scheduler_result = await restart_monitoring_scheduler()
+        keyboard = [
+            [InlineKeyboardButton("🔙 Экстренные функции", callback_data="admin_emergency")],
+            [InlineKeyboardButton("🔙 Админ панель", callback_data="admin_panel")]
+        ]
+        
+        jobs_removed = scheduler_result.get("jobs_removed", 0)
+        restored_monitors = scheduler_result.get("monitors_restored", 0)
+        failures = scheduler_result.get("failures", [])
+        
+        if scheduler_result.get("success"):
+            message_text = (
+                "🔄 **ПЕРЕЗАПУСК ПЛАНИРОВЩИКА**\n\n"
+                "✅ Планировщик мониторингов перезапущен.\n"
+                f"🗑️ Удалено задач: {jobs_removed}\n"
+                f"🔔 Восстановлено мониторингов: {restored_monitors}\n"
+                "🧹 Системная задача очистки callback'ов активирована."
+            )
+        else:
+            reason = scheduler_result.get("reason", "unknown")
+            message_text = (
+                "❌ **ОШИБКА ПЕРЕЗАПУСКА ПЛАНИРОВЩИКА**\n\n"
+                f"Причина: `{reason}`"
+            )
+        
+        if failures:
+            message_text += "\n\n⚠️ Не удалось восстановить мониторинги:\n"
+            for failure in failures[:5]:
+                message_text += f"• User ID {failure.get('user_id')}: {failure.get('error')}\n"
+            if len(failures) > 5:
+                message_text += f"… и ещё {len(failures) - 5} пользователей\n"
+        
+        await safe_edit_message(
+                query,
+            message_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
