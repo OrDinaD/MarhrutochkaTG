@@ -1048,6 +1048,120 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
             )
             
             return CONFIRM_MONITORING
+async def _ensure_monitoring_session(user_id: int, query, context: ContextTypes.DEFAULT_TYPE):
+    """Проверяет, что данные для запуска мониторинга корректны."""
+    session = user_data_store.get(user_id)
+    if not session:
+        await safe_edit_message(
+            query,
+            "⚠️ **Настройка мониторинга была сброшена**\n\n"
+            "Не удалось найти сохраненные данные. Начните настройку заново.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+            ]),
+            parse_mode='Markdown'
+        )
+        return None
+    
+    required_fields = ["date", "direction", "time_type", "time_range"]
+    missing = [field for field in required_fields if field not in session]
+    if missing:
+        logger.warning(f"Недостаточно данных для запуска мониторинга пользователя {user_id}: отсутствует {missing}")
+        await safe_edit_message(
+            query,
+            "⚠️ **Не хватает данных для запуска мониторинга**\n\n"
+            "Пожалуйста, пройдите настройку заново.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+            ]),
+            parse_mode='Markdown'
+        )
+        return None
+    
+    return session.copy()
+
+async def _store_monitoring_config(user_id: int, query, context: ContextTypes.DEFAULT_TYPE, session: Dict[str, Any]):
+    """Сохраняет конфигурацию мониторинга и запускает планировщик при необходимости."""
+    config = session.copy()
+    config['user_id'] = user_id
+    config['chat_id'] = query.message.chat_id
+    config['created_at'] = datetime.now().isoformat()
+    
+    active_monitors[user_id] = config
+    try:
+        user_manager.active_monitors[user_id] = config.copy()
+    except Exception as sync_error:
+        logger.debug(f"Не удалось синхронизировать user_manager для пользователя {user_id}: {sync_error}")
+    
+    save_active_monitors()
+    
+    if job_queue:
+        try:
+            job_queue.run_repeating(
+                check_routes_for_user,
+                interval=300,
+                first=10,
+                name=f"monitor_{user_id}",
+                data=user_id
+            )
+        except Exception as job_error:
+            logger.error(f"Не удалось добавить задачу мониторинга для пользователя {user_id}: {job_error}")
+    
+    await safe_edit_message(
+            query,
+        "🎉 **Мониторинг запущен!**\n\n"
+        f"{format_monitor_config(config)}\n\n"
+        "✅ Я буду проверять наличие мест каждые 5 минут\n"
+        "📱 Уведомления придут как только появятся подходящие рейсы\n\n"
+        "💡 Используйте главное меню для управления:",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")
+        ]]),
+        parse_mode='Markdown'
+    )
+
+async def _show_adjust_menu(user_id: int, query):
+    """Показывает меню изменения параметров мониторинга."""
+    if user_id not in user_data_store:
+        await safe_edit_message(
+            query,
+            "ℹ️ **Сессия настройки недоступна**\n\n"
+            "Начните настройку заново, чтобы изменить параметры.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+            ]),
+            parse_mode='Markdown'
+        )
+        return ConversationHandler.END
+    
+    await safe_edit_message(
+            query,
+        "🔧 **Настройка мониторинга**\n\n"
+        "Выберите, что хотите изменить:",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📅 Дата", callback_data="change_date")],
+            [InlineKeyboardButton("🛣️ Направление", callback_data="change_direction")],
+            [InlineKeyboardButton("⏰ Время", callback_data="change_time")],
+            [InlineKeyboardButton("🚫 Отменить", callback_data="cancel_setup")]
+        ]),
+        parse_mode='Markdown'
+    )
+    return CONFIRM_MONITORING
+
+async def _return_to_time_range(user_id: int, query):
+    """Возвращает пользователя к выбору диапазона времени."""
+    time_type = user_data_store.get(user_id, {}).get('time_type', 'departure')
+    
+    await safe_edit_message(
+        query,
+        "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
+        reply_markup=get_time_range_keyboard(time_type),
+        parse_mode='Markdown'
+    )
+    return CHOOSE_TIME_RANGE
 
 @callback_handler_protection(timeout=25)
 async def handle_monitoring_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1059,64 +1173,20 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
     data = query.data
     
     if data == "confirm_yes":
-        # Запускаем мониторинг
-        config = user_data_store[user_id].copy()
-        config['user_id'] = user_id
-        config['chat_id'] = query.message.chat_id
-        config['created_at'] = datetime.now().isoformat()
-        
-        active_monitors[user_id] = config
-        save_active_monitors()
-        
-        # Добавляем задачу в планировщик
-        if job_queue:
-            job_queue.run_repeating(
-                check_routes_for_user,
-                interval=300,  # 5 минут в секундах
-                first=10,      # Первый запуск через 10 секунд
-                name=f"monitor_{user_id}",
-                data=user_id
-            )
-        
-        await safe_edit_message(
-                query,
-            "🎉 **Мониторинг запущен!**\n\n"
-            f"{format_monitor_config(config)}\n\n"
-            "✅ Я буду проверять наличие мест каждые 5 минут\n"
-            "📱 Уведомления придут как только появятся подходящие рейсы\n\n"
-            "💡 Используйте главное меню для управления:",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")
-            ]]),
-            parse_mode='Markdown'
-        )
-        
+        session = await _ensure_monitoring_session(user_id, query, context)
+        if not session:
+            return ConversationHandler.END
+
+        await _store_monitoring_config(user_id, query, context, session)
         return ConversationHandler.END
-    
+
     elif data == "confirm_no":
-        await safe_edit_message(
-                query,
-            "🔧 **Настройка мониторинга**\n\n"
-            "Выберите, что хотите изменить:",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📅 Дата", callback_data="change_date")],
-                [InlineKeyboardButton("🛣️ Направление", callback_data="change_direction")],
-                [InlineKeyboardButton("⏰ Время", callback_data="change_time")],
-                [InlineKeyboardButton("🚫 Отменить", callback_data="cancel_setup")]
-            ]),
-            parse_mode='Markdown'
-        )
-    
-    elif data == "back_to_range":
-        # Возвращаемся к выбору диапазона времени
-        time_type = user_data_store[user_id].get('time_type', 'departure')
-        await safe_edit_message(
-            query,
-            "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
-            reply_markup=get_time_range_keyboard(time_type),
-            parse_mode='Markdown'
-        )
-        return CHOOSE_TIME_RANGE
+        return await _show_adjust_menu(user_id, query)
+
+    elif data in {"back_to_range", "back_to_time_range"}:
+        return await _return_to_time_range(user_id, query)
+
+    return CONFIRM_MONITORING
 
 async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка текстового ввода"""
@@ -2361,6 +2431,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         return CHOOSE_DATE
+    
+    elif data == "confirm_yes":
+        session = await _ensure_monitoring_session(user_id, query, context)
+        if session:
+            await _store_monitoring_config(user_id, query, context, session)
+        return ConversationHandler.END
+    
+    elif data == "confirm_no":
+        return await _show_adjust_menu(user_id, query)
+    
+    elif data in {"back_to_range", "back_to_time_range"}:
+        return await _return_to_time_range(user_id, query)
     
     elif data == "stop_monitoring":
         if user_id in active_monitors:
