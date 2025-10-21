@@ -106,28 +106,37 @@ class SecurityValidator:
         Returns:
             bool: True если диапазон корректный
         """
+        normalized = SecurityValidator.normalize_time_range(time_range)
+        return normalized is not None
+
+    @staticmethod
+    def normalize_time_range(time_range: str) -> Optional[str]:
+        """
+        Нормализация и валидация пользовательского диапазона времени.
+        Возвращает строку формата HH:MM-HH:MM либо None, если диапазон некорректный.
+        """
         if not time_range or not isinstance(time_range, str):
-            return False
-        
-        # Проверяем формат времени
-        pattern = r'^\d{2}:\d{2}-\d{2}:\d{2}$'
-        if not re.match(pattern, time_range):
-            return False
-        
-        try:
-            start_time, end_time = time_range.split('-')
-            start_hour, start_min = map(int, start_time.split(':'))
-            end_hour, end_min = map(int, end_time.split(':'))
-            
-            # Проверяем валидность часов и минут
-            if not (0 <= start_hour <= 23 and 0 <= start_min <= 59):
-                return False
-            if not (0 <= end_hour <= 23 and 0 <= end_min <= 59):
-                return False
-                
-            return True
-        except (ValueError, IndexError):
-            return False
+            return None
+
+        cleaned = time_range.strip()
+        cleaned = cleaned.replace('–', '-').replace('—', '-').replace('−', '-')
+        cleaned = re.sub(r'\s+', '', cleaned)
+
+        match = re.match(r'^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$', cleaned)
+        if not match:
+            return None
+
+        start_hour, start_min, end_hour, end_min = map(int, match.groups())
+
+        if not (0 <= start_hour <= 23 and 0 <= start_min <= 59):
+            return None
+        if not (0 <= end_hour <= 23 and 0 <= end_min <= 59):
+            return None
+
+        if start_hour == end_hour and start_min == end_min:
+            return None
+
+        return f"{start_hour:02d}:{start_min:02d}-{end_hour:02d}:{end_min:02d}"
     
     @staticmethod
     def sanitize_callback_data(data: str) -> str:
