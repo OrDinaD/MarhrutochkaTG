@@ -147,7 +147,7 @@ class CrashHandler:
                         }
             
             # Проверяем файлы данных
-            data_files = ['monitors.json']  # user_sessions.json удален
+            data_files = ['data/monitors.json']  # user_sessions.json удален
             for data_file in data_files:
                 file_path = Path(data_file)
                 if file_path.exists():

@@ -61,6 +61,7 @@ temp/
 !docs/BETA_WORKFLOW.md
 !docs/CLEANUP_AND_FIXES_REPORT.md
 !docs/BUTTON_FREEZE_FIX_REPORT.md
+!.github/AGENTS.md
 
 # Data files
 *.json

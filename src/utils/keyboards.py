@@ -11,18 +11,6 @@ from typing import List, Optional, Dict
 class KeyboardFactory:
     """Фабрика для создания клавиатур"""
     
-    # Мапинг направлений для удобства
-    DIRECTIONS = {
-        "minsk_ostrovets": "🏙️ Минск → Островец",
-        "ostrovets_minsk": "🏘️ Островец → Минск", 
-        "minsk_smorgon": "🏙️ Минск → Сморгонь",
-        "smorgon_minsk": "🏘️ Сморгонь → Минск",
-        "ostrovets_smorgon": "🏘️ Островец → Сморгонь",
-        "smorgon_ostrovets": "🏘️ Сморгонь → Островец",
-        "both": "🔄 Оба направления",
-        "all": "🔄 Все направления"
-    }
-    
     # Русские сокращения дней недели
     WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     
@@ -117,41 +105,6 @@ class KeyboardFactory:
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
-    def get_search_direction_keyboard() -> InlineKeyboardMarkup:
-        """Клавиатура для выбора направления поиска"""
-        keyboard = [
-            [InlineKeyboardButton("🏙️ Минск → Островец", callback_data="search_dir_minsk_ostrovets")],
-            [InlineKeyboardButton("🏘️ Островец → Минск", callback_data="search_dir_ostrovets_minsk")],
-            [InlineKeyboardButton("🎯 Выбрать города отдельно", callback_data="search_by_cities")],
-            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
-        ]
-        return InlineKeyboardMarkup(keyboard)
-    
-    @staticmethod 
-    def get_city_keyboard(exclude_city: Optional[str] = None, is_destination: bool = False) -> InlineKeyboardMarkup:
-        """Клавиатура для выбора города"""
-        cities = {
-            "Минск": "🏙️",
-            "Островец": "🏘️", 
-            "Сморгонь": "🏙️"
-        }
-        
-        keyboard = []
-        action = "to_city_" if is_destination else "from_city_"
-        
-        for city, emoji in cities.items():
-            if city != exclude_city:
-                keyboard.append([InlineKeyboardButton(
-                    f"{emoji} {city}", 
-                    callback_data=f"{action}{city}"
-                )])
-        
-        back_action = "search_by_cities" if not is_destination else "search_by_cities"
-        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=back_action)])
-        
-        return InlineKeyboardMarkup(keyboard)
-    
-    @staticmethod
     def create_webapp_keyboard(
         direction: Optional[str] = None, 
         date: Optional[str] = None,
@@ -175,27 +128,5 @@ class KeyboardFactory:
         
         return InlineKeyboardMarkup(keyboard)
     
-    @staticmethod
-    def get_monitoring_confirmation_keyboard() -> InlineKeyboardMarkup:
-        """Клавиатура для подтверждения мониторинга"""
-        keyboard = [
-            [InlineKeyboardButton("✅ Да, начать мониторинг", callback_data="confirm_yes")],
-            [InlineKeyboardButton("❌ Нет, отменить", callback_data="confirm_no")],
-            [InlineKeyboardButton("🔙 Изменить настройки", callback_data="back_to_range")]
-        ]
-        return InlineKeyboardMarkup(keyboard)
-    
-    @staticmethod
-    def get_monitor_actions_keyboard() -> InlineKeyboardMarkup:
-        """Клавиатура для действий с мониторингом"""
-        keyboard = [
-            [InlineKeyboardButton("🛑 Остановить", callback_data="stop_monitoring")],
-            [InlineKeyboardButton("🔧 Изменить", callback_data="setup_monitoring")], 
-            [InlineKeyboardButton("📱 Проверить сейчас", callback_data="check_now")],
-            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
-        ]
-        return InlineKeyboardMarkup(keyboard)
-
-
 # Создаем глобальный экземпляр для использования в боте
 keyboard_factory = KeyboardFactory()

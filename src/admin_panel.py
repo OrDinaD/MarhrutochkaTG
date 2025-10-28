@@ -9,8 +9,11 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+LOG_FILE_PATH = Path(__file__).resolve().parent.parent / 'data' / 'logs' / 'bot.log'
 
 class AdminPanel:
     """Административная панель для управления ботом"""
@@ -149,55 +152,12 @@ class AdminPanel:
             
         return "\n".join(report_parts)
     
-    def get_user_details(self, user_id: int, active_monitors: Dict, user_data_store: Dict) -> str:
-        """Возвращает детальную информацию о пользователе"""
-        report_parts = [
-            f"👤 **ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ**",
-            "",
-            f"🆔 **User ID:** `{user_id}`",
-            ""
-        ]
-        
-        # Информация о мониторинге
-        if user_id in active_monitors:
-            config = active_monitors[user_id]
-            report_parts.extend([
-                "🔔 **АКТИВНЫЙ МОНИТОРИНГ:**",
-                f"• Дата: {config.get('date')}",
-                f"• Направление: {config.get('direction')}",
-                f"• Тип времени: {config.get('time_type')}",
-                f"• Диапазон времени: {config.get('time_range')}",
-                f"• Создан: {config.get('created_at', 'н/д')[:19].replace('T', ' ')}",
-                ""
-            ])
-        else:
-            report_parts.append("🔔 **Мониторинг:** не активен\n")
-        
-        # Legacy авторизация удалена - теперь используется memory-only режим
-        report_parts.append("🔑 **Авторизация:** не требуется (memory-only режим)\n")
-        
-        # Информация о данных в памяти
-        if user_id in user_data_store:
-            data = user_data_store[user_id]
-            report_parts.extend([
-                "📱 **ДАННЫЕ В ПАМЯТИ:**"
-            ])
-            for key, value in data.items():
-                report_parts.append(f"• {key}: {value}")
-        else:
-            report_parts.append("📱 **Данные в памяти:** отсутствуют")
-        
-        return "\n".join(report_parts)
-    
     def get_system_logs(self, lines: int = 20) -> str:
         """Возвращает последние системные логи"""
         try:
-            import os
-            log_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs', 'bot.log')
-            
-            if os.path.exists(log_file_path):
-                with open(log_file_path, 'r', encoding='utf-8') as f:
-                    all_lines = f.readlines()
+            if LOG_FILE_PATH.exists():
+                with LOG_FILE_PATH.open('r', encoding='utf-8') as log_file:
+                    all_lines = log_file.readlines()
                     last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
                 
                 report_parts = [
@@ -357,43 +317,3 @@ class AdminPanel:
                 'error': str(e)
             }
     
-    def get_monitoring_details(self, user_id: int, active_monitors: Dict) -> str:
-        """Возвращает детали конкретного мониторинга"""
-        if user_id not in active_monitors:
-            return f"❌ Мониторинг для пользователя {user_id} не найден"
-        
-        config = active_monitors[user_id]
-        
-        direction_names = {
-            'minsk_ostrovets': 'Минск → Островец',
-            'ostrovets_minsk': 'Островец → Минск',
-            'both': 'Оба направления'
-        }
-        
-        time_names = {
-            'departure': 'время отправления',
-            'arrival': 'время прибытия',
-            'any': 'любое время'
-        }
-        
-        created_at = config.get('created_at', '')
-        if created_at:
-            try:
-                created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                created_str = created_dt.strftime('%d.%m.%Y %H:%M:%S')
-            except:
-                created_str = created_at[:19].replace('T', ' ')
-        else:
-            created_str = 'неизвестно'
-        
-        return (
-            f"🔍 **ДЕТАЛИ МОНИТОРИНГА**\n\n"
-            f"👤 **Пользователь:** `{user_id}`\n"
-            f"📅 **Дата:** {config.get('date')}\n"
-            f"🛣️ **Направление:** {direction_names.get(config.get('direction'), config.get('direction'))}\n"
-            f"⏰ **Тип времени:** {time_names.get(config.get('time_type'), config.get('time_type'))}\n"
-            f"🕐 **Диапазон:** {config.get('time_range')}\n"
-            f"📱 **Chat ID:** `{config.get('chat_id')}`\n"
-            f"🕒 **Создан:** {created_str}\n"
-            f"🔄 **Интервал проверки:** 5 минут"
-        )

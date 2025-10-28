@@ -18,6 +18,14 @@ cd "$PROJECT_DIR"
 
 echo -e "${YELLOW}📁 Рабочая директория: ${PROJECT_DIR}${NC}"
 
+# Определяем интерпретатор Python (по умолчанию используем python3)
+PYTHON_BIN=${PYTHON_BIN:-python3}
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo -e "${RED}❌ Не удалось найти интерпретатор '${PYTHON_BIN}'${NC}"
+    echo -e "${CYAN}💡 Укажите путь через переменную окружения PYTHON_BIN${NC}"
+    exit 1
+fi
+
 # Функция для проверки существования файла
 check_file() {
     if [ ! -f "$1" ]; then
@@ -34,7 +42,7 @@ ${BLUE}🔍 Проверка файлов...${NC}"
 required_files=(
     "main.py"
     "src/bot.py"
-    "src/parser.py"
+    "src/utils/parser.py"
     "requirements.txt"
 )
 
@@ -74,9 +82,9 @@ fi
 # Проверка Python зависимостей
 echo -e "
 ${BLUE}📦 Проверка зависимостей...${NC}"
-if ! python -c "import telegram; import aiohttp; import asyncio; print('✅ Основные зависимости установлены')" 2>/dev/null; then
+if ! "$PYTHON_BIN" -c "import telegram; import aiohttp; import asyncio; print('✅ Основные зависимости установлены')" 2>/dev/null; then
     echo -e "${YELLOW}⚠️ Устанавливаю зависимости...${NC}"
-    pip install -r requirements.txt
+    "$PYTHON_BIN" -m pip install -r requirements.txt
     if [ $? -ne 0 ]; then
         echo -e "${RED}❌ Ошибка установки зависимостей${NC}"
         exit 1
@@ -88,7 +96,7 @@ fi
 # Быстрый тест бота
 echo -e "
 ${BLUE}🧪 Быстрый тест бота...${NC}"
-if python -c "from src.bot import get_main_menu_keyboard; print('✅ Бот готов к работе')" 2>/dev/null; then
+if "$PYTHON_BIN" -c "from src.bot import get_main_menu_keyboard; print('✅ Бот готов к работе')" 2>/dev/null; then
     echo -e "${GREEN}✅ Бот прошел быструю проверку${NC}"
 else
     echo -e "${YELLOW}⚠️ Есть проблемы с ботом, но попробуем запустить...${NC}"
@@ -97,15 +105,15 @@ fi
 # Создание директорий
 echo -e "
 ${BLUE}📁 Создание рабочих директорий...${NC}"
-mkdir -p logs user_sessions
+mkdir -p data/logs data/crash_logs temp_recovery
 echo -e "${GREEN}✅ Директории созданы${NC}"
 
 # Показ полезной информации
 echo -e "
 ${PURPLE}💡 Полезные команды:${NC}"
 echo -e "${CYAN}   • Ctrl+C - остановка бота${NC}"
-echo -e "${CYAN}   • python tests/test_all.py - полное тестирование${NC}"
-echo -e "${CYAN}   • tail -f logs/bot.log - просмотр логов${NC}"
+echo -e "${CYAN}   • $PYTHON_BIN -m pytest - полное тестирование${NC}"
+echo -e "${CYAN}   • tail -f data/logs/bot.log - просмотр логов${NC}"
 
 # Функция graceful shutdown
 cleanup() {
@@ -126,10 +134,10 @@ echo -e "${BLUE}===========================================${NC}
 # Определяем способ запуска
 if [ -f "main.py" ]; then
     echo -e "${CYAN}🚀 Запуск через main.py...${NC}"
-    python main.py
+    "$PYTHON_BIN" main.py
 else
     echo -e "${CYAN}🚀 Прямой запуск src/bot.py...${NC}"
-    python src/bot.py
+    "$PYTHON_BIN" src/bot.py
 fi
 
 # Обработка завершения
@@ -140,7 +148,7 @@ if [ $exit_code -eq 0 ]; then
     echo -e "${GREEN}✅ Бот завершил работу корректно${NC}"
 else
     echo -e "${RED}❌ Бот завершился с ошибкой (код: $exit_code)${NC}"
-    echo -e "${CYAN}💡 Проверьте логи: tail logs/bot.log${NC}"
+    echo -e "${CYAN}💡 Проверьте логи: tail data/logs/bot.log${NC}"
 fi
 
 echo -e "${CYAN}👋 До свидания!${NC}"

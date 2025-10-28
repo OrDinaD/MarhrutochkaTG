@@ -4,7 +4,7 @@
 Использует современные практики python-telegram-bot без внешней БД
 """
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from datetime import datetime
 
 
@@ -23,25 +23,10 @@ class UserManager:
         
         logger.info("UserManager инициализирован в memory-only режиме")
     
-    def get_user_temp_data(self, user_id: int) -> dict:
-        """Получает временные данные пользователя из локального хранилища"""
-        return self.user_data_store.get(user_id, {})
-    
-    def set_user_temp_data(self, user_id: int, data: dict):
-        """Устанавливает временные данные пользователя в локальное хранилище"""
-        if user_id not in self.user_data_store:
-            self.user_data_store[user_id] = {}
-        self.user_data_store[user_id].update(data)
-        logger.debug(f"Обновлены временные данные для пользователя {user_id}")
-    
     def clear_user_temp_data(self, user_id: int):
         """Очищает временные данные пользователя из локального хранилища"""
         if self.user_data_store.pop(user_id, None):
             logger.debug(f"Очищены временные данные для пользователя {user_id}")
-    
-    def has_active_monitor(self, user_id: int) -> bool:
-        """Проверяет, есть ли у пользователя активный мониторинг"""
-        return user_id in self.active_monitors
     
     def get_user_monitor(self, user_id: int) -> Optional[dict]:
         """Получает конфигурацию мониторинга пользователя"""
@@ -67,10 +52,14 @@ class UserManager:
             logger.info(f"Удален мониторинг пользователя {user_id}")
             return True
         return False
-    
-    def get_all_active_monitors(self) -> Dict[int, dict]:
-        """Возвращает копию всех активных мониторингов"""
-        return self.active_monitors.copy()
+
+    def bind_active_monitors(self, storage: Dict[int, dict]):
+        """Связывает внешнее хранилище активных мониторингов"""
+        self.active_monitors = storage
+
+    def bind_user_data_store(self, storage: Dict[int, dict]):
+        """Связывает внешнее хранилище пользовательских данных"""
+        self.user_data_store = storage
     
     def emergency_reset_user(self, user_id: int):
         """
@@ -89,41 +78,6 @@ class UserManager:
         except Exception as e:
             logger.error(f"Ошибка при экстренном сбросе пользователя {user_id}: {e}")
     
-    def get_stats(self) -> Dict[str, Any]:
-        """Возвращает статистику по пользователям и мониторингам"""
-        return {
-            'active_monitors_count': len(self.active_monitors),
-            'temp_data_users_count': len(self.user_data_store),
-            'active_monitors': list(self.active_monitors.keys()),
-            'timestamp': datetime.now().isoformat()
-        }
-    
-    def cleanup_inactive_data(self, max_age_hours: int = 24):
-        """
-        Очищает неактивные данные пользователей старше указанного времени.
-        Помогает избежать утечек памяти при длительной работе.
-        """
-        current_time = datetime.now()
-        cleanup_count = 0
-        
-        # Очищаем старые мониторинги
-        expired_monitors = []
-        for user_id, monitor in self.active_monitors.items():
-            created_at = datetime.fromisoformat(monitor.get('created_at', current_time.isoformat()))
-            age_hours = (current_time - created_at).total_seconds() / 3600
-            
-            if age_hours > max_age_hours:
-                expired_monitors.append(user_id)
-        
-        for user_id in expired_monitors:
-            self.remove_user_monitor(user_id)
-            cleanup_count += 1
-        
-        if cleanup_count > 0:
-            logger.info(f"Очищено {cleanup_count} неактивных мониторингов")
-        
-        return cleanup_count
-
 
 # Создаем глобальный экземпляр менеджера пользователей без внешних зависимостей
 user_manager = UserManager()

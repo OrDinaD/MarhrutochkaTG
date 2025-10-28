@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 # Загружаем переменные окружения
 load_dotenv()
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.error import Conflict
 from telegram.ext import (
     Application,
@@ -41,27 +41,22 @@ try:
     from .admin_panel import AdminPanel
     from .security import security
     from .utils.keyboards import keyboard_factory
-    from .utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback, safe_send_message, callback_handler_protection
-    from .managers.user_manager import user_manager, UserManager
-    from .callback_router import callback_router
+    from .utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback
+    from .managers.user_manager import user_manager
 except ImportError:
     from utils import FinalMarshrutochkaParser
     from monitoring import setup_logging, railway_logger, crash_handler, diagnostic_system, auto_recovery
     from admin_panel import AdminPanel
     from security import security
     from utils.keyboards import keyboard_factory
-    from utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback, safe_send_message, callback_handler_protection
-    from managers.user_manager import user_manager, UserManager
-    from callback_router import callback_router
+    from utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback
+    from managers.user_manager import user_manager
 
 # Настройка логирования - используем Railway enhanced logger если доступен
 if railway_logger:
     logger = railway_logger
 else:
     logger = setup_logging(logging.INFO)
-
-# Определяем, является ли logger Railway logger-ом по наличию специальных методов
-is_railway_logger = hasattr(logger, 'system_action') and hasattr(logger, 'bot_action')
 
 def safe_log(message: str, log_type: str = "system", data: dict = None, level: str = "info"):
     """Универсальная функция безопасного логирования
@@ -133,14 +128,13 @@ async def emergency_conversation_reset(user_id: int, context: ContextTypes.DEFAU
     try:
         # Очищаем все состояния пользователя
         context.user_data.clear()
-        
-        # Очищаем из глобального хранилища
-        if user_id in user_data_store:
-            del user_data_store[user_id]
-        
+
+        # Очищаем пользовательские данные и мониторинги через менеджер
+        user_manager.emergency_reset_user(user_id)
+
         # Очищаем callback tracking
         active_callbacks.pop(user_id, None)
-        
+
         logger.warning(f"🚨 [{user_id}] Экстренный сброс состояния conversation")
         
     except Exception as e:
@@ -235,118 +229,16 @@ warnings.filterwarnings("ignore", category=PTBUserWarning)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Состояния для ConversationHandler
-(CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE, CHOOSE_TIME_RANGE, 
- CONFIRM_MONITORING, MONITORING_ACTIVE, 
- SEARCH_FROM, SEARCH_TO, SEARCH_DATE, ADMIN_SEARCH_USER) = range(10)
-
-from telegram.error import BadRequest
+(CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE, CHOOSE_TIME_RANGE,
+ CONFIRM_MONITORING, SEARCH_DATE) = range(6)
 
 # Глобальные переменные
 parser = None
 job_queue = None  # Встроенная очередь заданий PTB
-active_monitors = {}  # user_id -> monitor_config
-user_data_store = {}  # user_id -> user_data
+active_monitors = user_manager.active_monitors  # user_id -> monitor_config
+user_data_store = user_manager.user_data_store  # user_id -> user_data
 application = None  # will hold the Application instance
 admin_panel = None  # Административная панель
-
-# Вспомогательная функция для безопасного редактирования сообщений
-async def safe_edit_message(query_or_update, text: str, reply_markup=None, parse_mode=None, timeout=10):
-    """Безопасное редактирование сообщения с обработкой ошибок и таймаутом"""
-    import asyncio
-    
-    try:
-        # Добавляем таймаут для предотвращения зависания
-        async def _edit_message():
-            if hasattr(query_or_update, 'edit_message_text'):
-                # Это callback_query
-                await query_or_update.edit_message_text(
-                    text=text,
-                    reply_markup=reply_markup,
-                    parse_mode=parse_mode
-                )
-            elif hasattr(query_or_update, 'callback_query'):
-                # Это update с callback_query
-                await query_or_update.callback_query.edit_message_text(
-                    text=text,
-                    reply_markup=reply_markup,
-                    parse_mode=parse_mode
-                )
-        
-        # Выполняем с таймаутом
-        await asyncio.wait_for(_edit_message(), timeout=timeout)
-        
-    except asyncio.TimeoutError:
-        logger.error(f"⏰ Таймаут при редактировании сообщения ({timeout}s)")
-        # Пытаемся отправить простое сообщение вместо редактирования
-        try:
-            if hasattr(query_or_update, 'message'):
-                await query_or_update.message.reply_text("⚠️ Загрузка...")
-        except:
-            pass
-            
-    except BadRequest as e:
-        if "Message is not modified" in str(e):
-            logger.debug(f"Сообщение не изменилось для пользователя, пропускаем редактирование")
-            return
-        elif "Message to edit not found" in str(e):
-            logger.warning(f"Сообщение для редактирования не найдено")
-            return
-        else:
-            logger.error(f"Ошибка BadRequest при редактировании сообщения: {e}")
-            # Не перебрасываем ошибку, чтобы не блокировать бота
-            
-    except Exception as e:
-        logger.error(f"Неожиданная ошибка при редактировании сообщения: {e}")
-        # Не перебрасываем ошибку, чтобы не блокировать бота
-
-async def safe_answer_callback(query, text="", timeout=5):
-    """Безопасный ответ на callback query с таймаутом"""
-    import asyncio
-    
-    try:
-        # Проверяем, был ли callback уже отвечен
-        if hasattr(query, '_answered') and query._answered:
-            logger.debug(f"Callback {query.id} уже был отвечен")
-            return
-            
-        await asyncio.wait_for(query.answer(text), timeout=timeout)
-        # Помечаем как отвеченный
-        query._answered = True
-        
-    except asyncio.TimeoutError:
-        logger.error(f"⏰ Таймаут при ответе на callback ({timeout}s)")
-    except Exception as e:
-        # Игнорируем ошибки о том, что callback уже был отвечен
-        if "query is too old" in str(e).lower() or "invalid query id" in str(e).lower():
-            logger.debug(f"Callback query уже недействителен: {e}")
-        else:
-            logger.error(f"Ошибка при ответе на callback: {e}")
-
-async def safe_send_message(update_or_context, text: str, reply_markup=None, parse_mode=None, timeout=10):
-    """Безопасная отправка сообщения с таймаутом"""
-    import asyncio
-    
-    try:
-        async def _send_message():
-            if hasattr(update_or_context, 'message'):
-                await update_or_context.message.reply_text(
-                    text=text,
-                    reply_markup=reply_markup,
-                    parse_mode=parse_mode
-                )
-            elif hasattr(update_or_context, 'send_message'):
-                await update_or_context.send_message(
-                    text=text,
-                    reply_markup=reply_markup,
-                    parse_mode=parse_mode
-                )
-                
-        await asyncio.wait_for(_send_message(), timeout=timeout)
-        
-    except asyncio.TimeoutError:
-        logger.error(f"⏰ Таймаут при отправке сообщения ({timeout}s)")
-    except Exception as e:
-        logger.error(f"Ошибка при отправке сообщения: {e}")
 
 def callback_handler_protection(timeout=30):
     """Улучшенный декоратор для защиты callback handlers от зависания"""
@@ -426,32 +318,9 @@ def callback_handler_protection(timeout=30):
         return wrapper
     return decorator
 
-# Создаем директории для данных
+# Создаем директорию для данных (используется persistence)
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
-
-DATA_FILE = os.path.join(DATA_DIR, 'monitors.json')
-# Удалены legacy компоненты user_sessions - используется memory-only архитектура
-
-def load_active_monitors():
-    """Загрузка активных мониторингов - теперь используется memory-only режим"""
-    try:        
-        # Мониторинги хранятся в памяти через user_manager
-        logger.info("Мониторинги работают в memory-only режиме")
-        
-    except Exception as e:
-        logger.error(f"Ошибка инициализации мониторингов: {e}")
-
-def save_active_monitors():
-    """Сохранение активных мониторингов - legacy функция (теперь не используется)"""
-    try:
-        # Мониторинги теперь хранятся только в памяти для максимальной производительности
-        logger.debug("Мониторинги работают в memory-only режиме")
-    except Exception as e:
-        logger.error(f"Ошибка в save_active_monitors: {e}")
-
-# НЕ загружаем мониторинги на уровне модуля - переносим в main()
-# load_active_monitors()
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors from telegram.ext and log them."""
@@ -695,10 +564,7 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Остановить мониторинг"""
     user_id = update.effective_user.id
     
-    if user_id in active_monitors:
-        del active_monitors[user_id]
-        save_active_monitors()
-        
+    if user_manager.remove_user_monitor(user_id):
         # Удаляем задачу из планировщика
         try:
             if job_queue:
@@ -1084,18 +950,10 @@ async def _ensure_monitoring_session(user_id: int, query, context: ContextTypes.
 
 async def _store_monitoring_config(user_id: int, query, context: ContextTypes.DEFAULT_TYPE, session: Dict[str, Any]):
     """Сохраняет конфигурацию мониторинга и запускает планировщик при необходимости."""
-    config = session.copy()
-    config['user_id'] = user_id
-    config['chat_id'] = query.message.chat_id
-    config['created_at'] = datetime.now().isoformat()
-    
-    active_monitors[user_id] = config
-    try:
-        user_manager.active_monitors[user_id] = config.copy()
-    except Exception as sync_error:
-        logger.debug(f"Не удалось синхронизировать user_manager для пользователя {user_id}: {sync_error}")
-    
-    save_active_monitors()
+    monitor_payload = session.copy()
+    monitor_payload['chat_id'] = query.message.chat_id
+    user_manager.set_user_monitor(user_id, monitor_payload)
+    config = user_manager.get_user_monitor(user_id)
     
     if job_queue:
         try:
@@ -2193,39 +2051,6 @@ async def handle_to_city_choice(update: Update, context: ContextTypes.DEFAULT_TY
     
     return SEARCH_DATE
 
-async def handle_search_by_directions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка поиска по готовым направлениям (старый метод)"""
-    query = update.callback_query
-    await safe_answer_callback(query)
-    
-    # Создаем клавиатуру для выбора направления
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🏙️ Минск → Островец", callback_data="search_dir_minsk_ostrovets")],
-        [InlineKeyboardButton("🏘️ Островец → Минск", callback_data="search_dir_ostrovets_minsk")],
-        [InlineKeyboardButton("🏙️ Минск → Сморгонь", callback_data="search_dir_minsk_smorgon")],
-        [InlineKeyboardButton("🏘️ Сморгонь → Минск", callback_data="search_dir_smorgon_minsk")],
-        [InlineKeyboardButton("🏘️ Островец → Сморгонь", callback_data="search_dir_ostrovets_smorgon")],
-        [InlineKeyboardButton("🏘️ Сморгонь → Островец", callback_data="search_dir_smorgon_ostrovets")],
-        [InlineKeyboardButton("🔄 Все направления", callback_data="search_dir_all")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="search_routes")],
-        [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
-    ])
-    
-    await safe_edit_message(
-                query,
-        "🛣️ **Выберите направление для поиска:**\n\n"
-        "🚌 **Основные маршруты:**\n"
-        "• Минск ↔ Островец\n\n"
-        "🏙️ **Маршруты через Сморгонь:**\n"
-        "• Минск ↔ Сморгонь\n"
-        "• Островец ↔ Сморгонь\n\n"
-        "💡 *Маршруты через Сморгонь включают транзитные рейсы*",
-        parse_mode='Markdown',
-        reply_markup=keyboard
-    )
-    
-    return SEARCH_FROM
-
 def format_routes_message(routes_data, date, direction='all'):
     """Форматирование сообщения с рейсами"""
     if not routes_data.get('success', False):
@@ -2445,18 +2270,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await _return_to_time_range(user_id, query)
     
     elif data == "stop_monitoring":
-        if user_id in active_monitors:
-            del active_monitors[user_id]
-            save_active_monitors()
-            
+        if user_manager.remove_user_monitor(user_id):
             # Удаляем задачу из планировщика
             try:
                 if job_queue:
-                    # Удаляем существующие задания
                     current_jobs = job_queue.get_jobs_by_name(f"monitor_{user_id}")
                     for job in current_jobs:
                         job.schedule_removal()
-            except:
+            except Exception:
                 pass
             
             await safe_edit_message(
@@ -3134,31 +2955,23 @@ def register_handlers(application):
 
 def main():
     """Главная функция запуска бота"""
-    global application, admin_panel, bot_start_time, active_monitors, user_data_store
-    
-    # Записываем время запуска
-    bot_start_time = datetime.now()
-    
-    # Загружаем существующие мониторинги
-    try:
-        load_active_monitors()
-        safe_log_system("Мониторинги загружены", {"count": len(active_monitors)})
-    except Exception as e:
-        safe_log_system("Ошибка загрузки мониторингов", {"error": str(e)}, level="error")
-    
+    global application, admin_panel, active_monitors, user_data_store
+
+    safe_log_system("Мониторинги работают в memory-only режиме", {})
+
     # Инициализируем систему обработки крашей в самом начале
     try:
         crash_handler.setup_crash_handling()
         safe_log_system("Система обработки крашей активирована", {"status": "enabled"})
     except Exception as e:
         safe_log_system("Ошибка активации crash handler", {"error": str(e)}, level="error")
-    
+
     # Получаем токен из переменных окружения
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
         safe_log_bot("Токен бота не найден", {"error": "TELEGRAM_BOT_TOKEN missing"}, level="error")
         return
-    
+
     # Инициализируем админ-панель
     admin_telegram_id = os.getenv('ADMIN_TELEGRAM_ID')
     if admin_telegram_id:
@@ -3169,35 +2982,35 @@ def main():
             safe_log_admin("Неверный ADMIN_TELEGRAM_ID", {"error": "must_be_number"}, level="error")
     else:
         safe_log_admin("ADMIN_TELEGRAM_ID не установлен", {"warning": "admin_panel_disabled"}, level="warning")
-    
+
     safe_log_bot("Запуск бота MarhrutochkaTG", {
         "python_version": sys.version.split()[0],
         "working_directory": os.getcwd(),
         "process_id": os.getpid(),
         "environment": "railway" if os.getenv('RAILWAY_SERVICE_NAME') else "local"
     })
-    
+
     # Создаем приложение с постоянным хранилищем
     persistence_path = os.path.join(DATA_DIR, 'bot_state.pickle')
     persistence = PicklePersistence(filepath=persistence_path)
     application = Application.builder().token(token).persistence(persistence).build()
-    
+
     try:
         # Регистрируем обработчики
         register_handlers(application)
-        
+
         # Получаем job_queue
         global job_queue
         job_queue = application.job_queue
-        
-        # Сопоставляем состояние с persistence
-        active_monitors = application.bot_data.setdefault("active_monitors", {})
-        user_data_store = application.bot_data.setdefault("user_data_store", {})
-        
-        # Загружаем существующие мониторинги и сессии
-        load_active_monitors()
-        # Legacy load_user_sessions удален - используется memory-only режим
-        
+
+        # Привязываем persistence-хранилища к менеджеру пользователей
+        monitors_storage = application.bot_data.setdefault("active_monitors", {})
+        user_data_storage = application.bot_data.setdefault("user_data_store", {})
+        user_manager.bind_active_monitors(monitors_storage)
+        user_manager.bind_user_data_store(user_data_storage)
+        active_monitors = user_manager.active_monitors
+        user_data_store = user_manager.user_data_store
+
         # Добавляем фоновую задачу для очистки застрявших callbacks
         job_queue.run_repeating(
             cleanup_stuck_callbacks,
@@ -3205,13 +3018,13 @@ def main():
             first=10,     # Первый запуск через 10 секунд
             name=CLEANUP_JOB_NAME
         )
-        
+
         safe_log_bot("Данные восстановлены", {
             "monitors_count": len(active_monitors),
             "mode": "memory-only",
             "callback_cleanup": "enabled"
         })
-        
+
         # Восстанавливаем активные мониторинги
         for user_id, config in active_monitors.items():
             try:
@@ -3228,23 +3041,23 @@ def main():
                     "user_id": user_id,
                     "error": str(e)
                 }, level="error")
-        
+
         # Запускаем бота (планировщик запустится автоматически)
         safe_log_bot("Бот запущен успешно", {"status": "running"})
         application.run_polling(drop_pending_updates=True)
-        
+
         restart_info = application.bot_data.get("restart_info", {})
         if restart_info.get("pending"):
             safe_log_system("Перезапуск бота: выполняем рестарт процесса", restart_info)
             restart_info["pending"] = False
             logging.shutdown()
             os.execl(sys.executable, sys.executable, *sys.argv)
-        
+
     except Conflict:
         safe_log_bot("Конфликт: бот уже запущен", {"error": "conflict"}, level="error")
     except Exception as e:
         safe_log_bot("Критическая ошибка", {"error": str(e)}, level="error")
-        
+
         # Обрабатываем краш через нашу систему
         try:
             async def handle_crash():
@@ -3256,13 +3069,13 @@ def main():
                         "actions_count": len(recovery_result.get("actions_taken", [])),
                         "crash_id": crash_analysis.get("crash_id")
                     })
-            
+
             # Запускаем асинхронную обработку краша
             asyncio.run(handle_crash())
-            
+
         except Exception as recovery_error:
             safe_log_system("Ошибка автоматического восстановления", {"error": str(recovery_error)}, level="error")
-        
+
         traceback.print_exc()
     finally:
         # Graceful shutdown
