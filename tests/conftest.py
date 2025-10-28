@@ -13,6 +13,8 @@ from pathlib import Path
 # Добавляем src в путь для импортов
 PROJECT_ROOT = Path(__file__).parent.parent
 SRC_PATH = PROJECT_ROOT / "src"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
@@ -20,6 +22,18 @@ if str(SRC_PATH) not in sys.path:
 os.makedirs(PROJECT_ROOT / "data" / "logs", exist_ok=True)
 os.makedirs(PROJECT_ROOT / "data" / "temp", exist_ok=True)
 
+
+import inspect
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem):
+    if inspect.iscoroutinefunction(pyfuncitem.obj):
+        loop = asyncio.get_event_loop_policy().get_event_loop()
+        params = inspect.signature(pyfuncitem.obj).parameters
+        kwargs = {name: pyfuncitem.funcargs[name] for name in params}
+        loop.run_until_complete(pyfuncitem.obj(**kwargs))
+        return True
+    return None
 @pytest.fixture(scope="session")
 def event_loop():
     """Создаём event loop для всей сессии тестов"""
