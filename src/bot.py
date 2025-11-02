@@ -43,6 +43,7 @@ try:
     from .utils.keyboards import keyboard_factory
     from .utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback
     from .managers.user_manager import user_manager
+    from .storage import create_storage_from_env
 except ImportError:
     from utils import FinalMarshrutochkaParser
     from monitoring import setup_logging, railway_logger, crash_handler, diagnostic_system, auto_recovery
@@ -51,6 +52,7 @@ except ImportError:
     from utils.keyboards import keyboard_factory
     from utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback
     from managers.user_manager import user_manager
+    from storage import create_storage_from_env
 
 # Настройка логирования - используем Railway enhanced logger если доступен
 if railway_logger:
@@ -2990,7 +2992,7 @@ def main():
         "environment": "railway" if os.getenv('RAILWAY_SERVICE_NAME') else "local"
     })
 
-    # Создаем приложение с постоянным хранилищем
+    # Создаем приложение с постоянным локальным хранилищем состояния (для user_data/chat_data/bot_data)
     persistence_path = os.path.join(DATA_DIR, 'bot_state.pickle')
     persistence = PicklePersistence(filepath=persistence_path)
     application = Application.builder().token(token).persistence(persistence).build()
@@ -3003,10 +3005,43 @@ def main():
         global job_queue
         job_queue = application.job_queue
 
-        # Привязываем persistence-хранилища к менеджеру пользователей
+        # Настраиваем устойчивое хранилище мониторингов (Redis или файл)
+        try:
+            storage = create_storage_from_env()
+            user_manager.set_storage(storage)
+        except Exception as e:
+            storage = None
+            safe_log_system("Не удалось инициализировать персистентное storage", {"error": str(e)}, level="error")
+
+        # Привязываем persistence-хранилища Telegram к менеджеру пользователей
+        # user_data/chat_data/bot_data остаются в PicklePersistence
+        # active_monitors синхронизируем со storage
+        loaded = 0
+        if storage:
+            loaded = user_manager.load_monitors_from_storage()
+
+        # Создаем/обновляем структуры в bot_data и биндим на менеджер
         monitors_storage = application.bot_data.setdefault("active_monitors", {})
         user_data_storage = application.bot_data.setdefault("user_data_store", {})
-        user_manager.bind_active_monitors(monitors_storage)
+
+        # Если из storage ничего не загружено, но есть данные в bot_data (после рестарта без смены образа), сохраним в storage
+        if loaded == 0 and monitors_storage:
+            try:
+                if storage:
+                    storage.save_all(monitors_storage)  # миграция в storage
+                    safe_log_system("Выполнена миграция мониторингов из bot_data в storage", {"count": len(monitors_storage)})
+            except Exception as e:
+                safe_log_system("Ошибка миграции мониторингов в storage", {"error": str(e)}, level="error")
+
+        # Теперь приводим активные мониторинги к данным менеджера
+        if user_manager.active_monitors:
+            # Загруженные из storage данные подставляем в bot_data
+            monitors_storage.clear()
+            monitors_storage.update(user_manager.active_monitors)
+        else:
+            # Иначе берем из bot_data (если были) и в менеджер
+            user_manager.bind_active_monitors(monitors_storage)
+
         user_manager.bind_user_data_store(user_data_storage)
         active_monitors = user_manager.active_monitors
         user_data_store = user_manager.user_data_store
