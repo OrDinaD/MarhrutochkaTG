@@ -5,7 +5,7 @@
 
 import pytest
 from datetime import datetime, timedelta
-from src.utils.keyboards import KeyboardFactory
+from utils.keyboards import KeyboardFactory
 
 
 class TestKeyboardFactory:

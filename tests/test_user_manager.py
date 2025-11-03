@@ -6,7 +6,7 @@
 import pytest
 from unittest.mock import Mock, patch
 from datetime import datetime
-from src.managers.user_manager import UserManager
+from managers.user_manager import UserManager
 
 
 class TestUserManager:

@@ -15,7 +15,7 @@ class TestCallbackTracking:
     @pytest.mark.asyncio
     async def test_track_callback_start(self):
         """Тест начала отслеживания callback"""
-        from src.bot import track_callback_start, active_callbacks
+        from bot import track_callback_start, active_callbacks
         
         user_id = 12345
         query_id = "test_query_123"
@@ -31,7 +31,7 @@ class TestCallbackTracking:
     @pytest.mark.asyncio
     async def test_track_callback_end(self):
         """Тест окончания отслеживания callback"""
-        from src.bot import track_callback_start, track_callback_end, active_callbacks
+        from bot import track_callback_start, track_callback_end, active_callbacks
         
         user_id = 12345
         query_id = "test_query_123"
@@ -46,7 +46,7 @@ class TestCallbackTracking:
     @pytest.mark.asyncio
     async def test_cleanup_stuck_callbacks(self):
         """Тест очистки застрявших callbacks"""
-        from src.bot import cleanup_stuck_callbacks, active_callbacks
+        from bot import cleanup_stuck_callbacks, active_callbacks
         
         # Добавляем старый callback
         old_time = datetime.now() - timedelta(seconds=60)
@@ -76,7 +76,7 @@ class TestCallbackTracking:
     @pytest.mark.asyncio
     async def test_emergency_conversation_reset(self):
         """Тест экстренного сброса разговора"""
-        from src.bot import emergency_conversation_reset, active_callbacks
+        from bot import emergency_conversation_reset, active_callbacks
         
         user_id = 12345
         
@@ -104,7 +104,7 @@ class TestCallbackHandlerProtection:
     @pytest.mark.asyncio
     async def test_callback_handler_protection_success(self):
         """Тест успешной обработки с защитой"""
-        from src.bot import callback_handler_protection
+        from bot import callback_handler_protection
         
         # Создаём тестовую функцию
         @callback_handler_protection(timeout=5)
@@ -129,7 +129,7 @@ class TestCallbackHandlerProtection:
     @pytest.mark.asyncio
     async def test_callback_handler_protection_timeout(self):
         """Тест обработки таймаута"""
-        from src.bot import callback_handler_protection
+        from bot import callback_handler_protection
         import asyncio
         
         # Создаём функцию которая зависает
@@ -157,7 +157,7 @@ class TestCallbackHandlerProtection:
     @pytest.mark.asyncio
     async def test_callback_handler_protection_exception(self):
         """Тест обработки исключений"""
-        from src.bot import callback_handler_protection
+        from bot import callback_handler_protection
         
         # Создаём функцию которая выбрасывает ошибку
         @callback_handler_protection(timeout=5)
@@ -187,9 +187,9 @@ class TestMonitoringScheduler:
     @pytest.mark.asyncio
     async def test_restart_monitoring_scheduler_no_queue(self):
         """Тест перезапуска без job_queue"""
-        from src.bot import restart_monitoring_scheduler
+        from bot import restart_monitoring_scheduler
         
-        with patch('src.bot.job_queue', None):
+        with patch('bot.job_queue', None):
             result = await restart_monitoring_scheduler()
             
             assert result['success'] is False
@@ -198,7 +198,7 @@ class TestMonitoringScheduler:
     @pytest.mark.asyncio
     async def test_restart_monitoring_scheduler_success(self):
         """Тест успешного перезапуска планировщика"""
-        from src.bot import restart_monitoring_scheduler
+        from bot import restart_monitoring_scheduler
         
         # Мокаем job_queue
         mock_job_queue = Mock()
@@ -207,8 +207,8 @@ class TestMonitoringScheduler:
         mock_job_queue.jobs = Mock(return_value=[mock_job])
         mock_job_queue.run_repeating = Mock()
         
-        with patch('src.bot.job_queue', mock_job_queue), \
-             patch('src.bot.active_monitors', {}):
+        with patch('bot.job_queue', mock_job_queue), \
+             patch('bot.active_monitors', {}):
             result = await restart_monitoring_scheduler()
             
             assert 'jobs_removed' in result
@@ -217,7 +217,7 @@ class TestMonitoringScheduler:
     @pytest.mark.asyncio
     async def test_trigger_bot_restart(self):
         """Тест инициации перезапуска бота"""
-        from src.bot import trigger_bot_restart
+        from bot import trigger_bot_restart
         
         context = Mock()
         context.application = Mock()
@@ -239,7 +239,7 @@ class TestUtilityFunctions:
     
     def test_create_webapp_url(self):
         """Тест создания URL веб-приложения"""
-        from src.bot import create_webapp_url
+        from bot import create_webapp_url
         
         url = create_webapp_url('minsk_ostrovets')
         
@@ -249,7 +249,7 @@ class TestUtilityFunctions:
     
     def test_create_webapp_url_with_date(self):
         """Тест создания URL с датой"""
-        from src.bot import create_webapp_url
+        from bot import create_webapp_url
         
         url = create_webapp_url('minsk_ostrovets', '2025-11-03')
         
@@ -258,7 +258,7 @@ class TestUtilityFunctions:
     
     def test_create_webapp_keyboard(self):
         """Тест создания клавиатуры с веб-приложением"""
-        from src.bot import create_webapp_keyboard
+        from bot import create_webapp_keyboard
         
         keyboard = create_webapp_keyboard('minsk_ostrovets')
         
@@ -267,7 +267,7 @@ class TestUtilityFunctions:
     
     def test_create_webapp_keyboard_both_directions(self):
         """Тест клавиатуры для обоих направлений"""
-        from src.bot import create_webapp_keyboard
+        from bot import create_webapp_keyboard
         
         keyboard = create_webapp_keyboard('both')
         
@@ -276,7 +276,7 @@ class TestUtilityFunctions:
     
     def test_format_monitor_config(self):
         """Тест форматирования конфигурации мониторинга"""
-        from src.bot import format_monitor_config
+        from bot import format_monitor_config
         
         config = {
             'date': '2025-11-03',
@@ -294,10 +294,10 @@ class TestUtilityFunctions:
     
     def test_get_main_menu_keyboard(self):
         """Тест получения главного меню"""
-        from src.bot import get_main_menu_keyboard
+        from bot import get_main_menu_keyboard
         
         # Инициализируем admin_panel
-        with patch('src.bot.admin_panel', None):
+        with patch('bot.admin_panel', None):
             keyboard = get_main_menu_keyboard(12345)
             
             assert keyboard is not None
@@ -309,7 +309,7 @@ class TestLoggingFunctions:
     
     def test_safe_log_system(self):
         """Тест системного логирования"""
-        from src.bot import safe_log_system
+        from bot import safe_log_system
         
         # Не должно вызывать ошибок
         safe_log_system("Test message")
@@ -318,7 +318,7 @@ class TestLoggingFunctions:
     
     def test_safe_log_bot(self):
         """Тест логирования бота"""
-        from src.bot import safe_log_bot
+        from bot import safe_log_bot
         
         # Не должно вызывать ошибок
         safe_log_bot("Test message")
@@ -326,7 +326,7 @@ class TestLoggingFunctions:
     
     def test_safe_log_admin(self):
         """Тест административного логирования"""
-        from src.bot import safe_log_admin
+        from bot import safe_log_admin
         
         # Не должно вызывать ошибок
         safe_log_admin("Test message")
@@ -334,7 +334,7 @@ class TestLoggingFunctions:
     
     def test_safe_log_universal(self):
         """Тест универсальной функции логирования"""
-        from src.bot import safe_log
+        from bot import safe_log
         
         # Тестируем разные типы логов
         safe_log("System test", "system")
@@ -349,7 +349,7 @@ class TestErrorHandler:
     @pytest.mark.asyncio
     async def test_error_handler_with_user(self):
         """Тест обработчика ошибок с пользователем"""
-        from src.bot import error_handler
+        from bot import error_handler
         
         update = Mock()
         update.effective_user = Mock()
@@ -368,7 +368,7 @@ class TestErrorHandler:
     @pytest.mark.asyncio
     async def test_error_handler_without_user(self):
         """Тест обработчика ошибок без пользователя"""
-        from src.bot import error_handler
+        from bot import error_handler
         
         update = Mock()
         update.effective_user = None
@@ -388,14 +388,14 @@ class TestParserInitialization:
     @pytest.mark.asyncio
     async def test_init_parser(self):
         """Тест инициализации парсера"""
-        from src.bot import init_parser
+        from bot import init_parser
         
-        with patch('src.bot.FinalMarshrutochkaParser') as MockParser:
+        with patch('bot.FinalMarshrutochkaParser') as MockParser:
             mock_parser = Mock()
             mock_parser.__aenter__ = AsyncMock()
             MockParser.return_value = mock_parser
             
-            with patch('src.bot.parser', None):
+            with patch('bot.parser', None):
                 await init_parser()
                 
                 # Проверяем что парсер был создан

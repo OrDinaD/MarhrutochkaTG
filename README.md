@@ -1,39 +1,44 @@
 # 🚌 MarhrutochkaTG Bot
 
-> **Продвинутый Telegram-бот** для автоматического мониторинга и поиска билетов на маршрутки **Минск ↔ Островец** с интеллектуальной системой уведомлений и crash-recovery архитектурой.
+<img src="assets/interface.jpg" alt="Интерфейс бота" width="300" align="left" style="margin-right: 20px; margin-bottom: 20px;">
 
-<div align="center">
+**Telegram-бот** для мониторинга и поиска рейсов маршруток **Минск ↔ Островец**. Автоматически проверяет наличие свободных мест и отправляет уведомления, когда они появляются.
 
-![Интерфейс бота](assets/interface.jpg)
+**Основные возможности:**
+- 🔔 Автоматический мониторинг рейсов каждые 5 минут
+- 📅 Поиск по дате и времени отправления/прибытия
+- 🚀 Мгновенные уведомления о свободных местах
+- 🛡️ Стабильная работа с системой восстановления после сбоев
+- 📊 Админ-панель для управления и статистики
 
-[![Railway Deploy](https://img.shields.io/badge/Deploy-Railway-blueviolet)](https://railway.app/)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Telegram Bot API](https://img.shields.io/badge/Telegram-Bot%20API-blue.svg)](https://core.telegram.org/bots/api)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.13+](https://img.shields.io/badge/Python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://img.shields.io/badge/tests-238%20passed-success)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-36%25-yellow)](tests/)
 
-</div>
+<br clear="left"/>
 
 ---
 
-## ✨ Ключевые особенности
+## ✨ Возможности
 
-### 🎯 **Умный мониторинг**
-- ⚡ **Async парсинг** с `aiohttp` для высокой производительности  
-- 🕒 **Адаптивные интервалы** - быстрее в часы пик, реже ночью
-- 🔄 **Auto-recovery система** - самовосстановление после сбоев
-- 📊 **Real-time уведомления** при появлении свободных мест
+### 🎯 Мониторинг рейсов
+- � Автоматическая проверка наличия мест каждые 5 минут
+- � Уведомления в Telegram при появлении свободных мест
+- � Настройка времени отправления/прибытия
+- � Выбор даты поездки
 
-### 🛡️ **Production-ready архитектура**
-- 🔐 **Безопасный callback routing** с таймаутами и защитой от зависаний
-- 📝 **Railway Enhanced Logger** с JSON структурированными логами  
-- 🚨 **Crash Handler** с автоматическими отчетами и диагностикой
-- ⚙️ **Memory-only architecture** - никаких БД, только in-memory state
+### 🔍 Поиск маршрутов
+- Просмотр доступных рейсов на конкретную дату
+- Фильтрация по времени отправления или прибытия
+- Информация о количестве свободных мест
+- Прямая ссылка на сайт бронирования
 
-### 🎨 **Продвинутый UX**
-- 📱 **Responsive inline клавиатуры** с динамическим обновлением
-- 🔍 **Smart поиск** с фильтрами по времени и дате
-- 👤 **Персональные профили** с сохранением предпочтений
-- 🎛️ **Админ-панель** с мониторингом системы в реальном времени
+### ⚙️ Технические особенности
+- Асинхронный парсинг сайта маршруточка.бел
+- Система восстановления после сбоев
+- In-memory хранение данных (без БД)
+- Защита от зависаний callback handlers
+- Логирование для Railway
 
 ---
 
@@ -70,29 +75,29 @@
 <details>
 <summary><b>⚡ Производительность</b></summary>
 
-- **Memory footprint**: ~15-20MB в рабочем состоянии
-- **Response time**: <200ms для большинства операций  
-- **Concurrent users**: До 100+ одновременных пользователей
-- **Monitoring interval**: 30 сек в часы пик, 5 мин в ночное время
-- **Auto-recovery**: <10 сек восстановление после сбоев
+- **Memory footprint**: ~20-30MB в рабочем состоянии
+- **Response time**: обычно < 2 секунды для большинства операций  
+- **Monitoring interval**: проверка каждые 5 минут
+- **Auto-recovery**: автоматическое восстановление при сбоях
 
-</details>
+
 
 ---
 
 ## 🚀 Быстрый старт
 
-### 🐳 Railway (Recommended)
+### 🐳 Деплой на Railway
 
 ```bash
 # 1. Fork этот репозиторий
-# 2. Подключите к Railway
-# 3. Добавьте environment variables:
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-ADMIN_TELEGRAM_ID=your_telegram_id
+# 2. Создайте новый проект в Railway
+# 3. Подключите GitHub репозиторий
+# 4. Добавьте переменные окружения:
+TELEGRAM_BOT_TOKEN=ваш_токен_бота
+ADMIN_TELEGRAM_ID=ваш_telegram_id
 ```
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template)
+Railway автоматически задеплоит бота после коммита.
 
 ### 💻 Локальная разработка
 
@@ -154,51 +159,40 @@ CRASH_REPORT_ENABLED = True        # Включить crash reports
 
 ---
 
-## 🎯 Команды и функции
+## 🎯 Использование
 
-### 🤖 Пользовательские команды
-- `/start` - **Главное меню** с приветствием и навигацией
-- `/search` - **Поиск рейсов** с интерактивными фильтрами  
-- `/monitor` - **Создать мониторинг** с настройкой уведомлений
-- `/profile` - **Личный кабинет** с историей и настройками
-- `/help` - **Справочная система** с подробными инструкциями
+### 🤖 Команды бота
+- `/start` - Главное меню и начало работы
+- Кнопка **"🔔 Настроить мониторинг"** - настройка автоматической проверки рейсов
+- Кнопка **"🔍 Поиск рейсов"** - разовый поиск доступных мест
+- Кнопка **"📊 Мои мониторинги"** - просмотр и управление активными мониторингами
 
-### 👨‍💻 Админ-команды  
-- `/admin` - **Панель администратора** с системным мониторингом
-- `/stats` - **Статистика** пользователей и производительности
-- `/logs` - **Просмотр логов** в реальном времени
-- `/recovery` - **Ручной запуск** системы восстановления
+### 👨‍💻 Для администратора  
+- Кнопка **"⚙️ Админ-панель"** - статистика пользователей и мониторингов
+- Просмотр системных логов
+- Управление мониторингами всех пользователей
 
 ---
 
 ## 🔬 Технические детали
 
-### 📊 **Monitoring Stack**
-```python
-# Real-time системный мониторинг
-├── RailwayLoggerEnhanced     # Structured JSON logging
-├── CrashHandler              # Exception capture & analysis  
-├── AutoRecoverySystem        # Self-healing mechanisms
-├── DiagnosticSystem          # Health checks & alerts
-└── CallbackTracker           # UI state management
-```
+### 📊 Мониторинг и логирование
+- **Railway Logger** - структурированное логирование для Railway
+- **Crash Handler** - автоматические отчеты об ошибках
+- **Auto Recovery** - система самовосстановления
+- **Callback Tracker** - отслеживание состояний UI
 
-### 🌐 **Parser Architecture**  
-```python
-# Async web scraping pipeline
-class FinalMarshrutochkaParser:
-    ├── aiohttp.ClientSession    # Async HTTP client
-    ├── BeautifulSoup4          # HTML parsing 
-    ├── Smart caching           # Response optimization
-    └── Error resilience        # Retry mechanisms
-```
+### 🌐 Парсинг данных
+- **aiohttp** - асинхронные HTTP запросы
+- **BeautifulSoup4** - парсинг HTML
+- Кэширование ответов для оптимизации
+- Retry механизмы при ошибках
 
-### 🛡️ **Security Features**
-- **Input validation** всех пользовательских данных
-- **Rate limiting** для предотвращения спама
-- **Callback query protection** от race conditions  
-- **Safe API wrappers** с automatic retry logic
-- **Memory leak prevention** с automatic cleanup
+### 🛡️ Безопасность
+- Валидация всех пользовательских данных
+- Защита callback handlers от зависаний
+- Безопасные обертки для Telegram API
+- Автоматическая очистка памяти
 
 ---
 
@@ -211,40 +205,28 @@ pytest
 # Тесты с покрытием
 pytest --cov=src --cov-report=html
 
-# Интеграционные тесты
-pytest tests/test_bot.py -v
-
-# Performance тесты  
-pytest tests/test_monitoring.py::test_performance -s
+# Конкретные тесты
+pytest tests/test_bot_callbacks.py -v
 ```
 
-**Test Coverage**: 85%+ основного функционала
+**Статистика тестов**: 238 тестов, покрытие 36%
 
 ---
 
-## 📈 Мониторинг и метрики
+## 📈 Мониторинг
 
-### 🔍 **Railway Logs**
-```json
-{
-  "timestamp": "2024-12-12T12:32:50.123Z",
-  "level": "INFO", 
-  "component": "bot",
-  "action": "user_search",
-  "user_id": 123456789,
-  "data": {
-    "search_params": {"from": "Минск", "to": "Островец"},
-    "execution_time": "1.23s",
-    "results_found": 5
-  }
-}
-```
+### 🔍 Логи Railway
+Бот пишет структурированные JSON логи для Railway с информацией о:
+- Действиях пользователей
+- Ошибках и исключениях
+- Времени выполнения операций
+- Результатах парсинга
 
-### 📊 **Системные метрики**
-- 🔄 **Uptime tracking** с автоматическими health checks
-- 📱 **User activity** с детализацией по функциям  
-- ⚡ **Performance profiling** всех критических операций
-- 🚨 **Error rate monitoring** с алертами
+### 📊 Метрики
+- Отслеживание активных мониторингов
+- Статистика по пользователям
+- Логирование ошибок
+- Health checks системы
 
 ---
 
@@ -263,30 +245,22 @@ pytest tests/test_monitoring.py::test_performance -s
 8. **Create Pull Request**
 
 ### 📝 **Code Style**
-- **Python**: PEP 8 + Black formatting  
-- **Docstrings**: Google style
-- **Type hints**: обязательны для public методов
-- **Async/await**: предпочтительно для I/O операций
+- **Python**: PEP 8
+- **Docstrings**: где необходимо
+- **Async/await**: для I/O операций
 
 ---
 
 ## 📞 Поддержка
 
-### 🔧 **Troubleshooting**
-1. Проверьте [logs](data/logs/) на наличие ошибок
-2. Убедитесь в корректности [environment variables](#-environment-variables)
-3. Проверьте [Railway status](https://status.railway.app/) при деплое  
-4. Посмотрите [открытые issues](../../issues) для известных проблем
+### 🔧 Troubleshooting
+1. Проверьте логи в Railway dashboard
+2. Убедитесь что переменные окружения установлены правильно
+3. Проверьте [открытые issues](../../issues) для известных проблем
 
-### 📚 **Документация**
-- [Deployment Guide](RAILWAY_SETUP.md) - детальный гайд по деплою
-- [API Reference](docs/) - техническая документация
-- [Testing Guide](tests/TEST_REPORT.md) - руководство по тестированию
-
-### 💬 **Связь**
-- **Issues**: [GitHub Issues](../../issues) для багов и feature requests
+###  Связь
+- **Issues**: [GitHub Issues](../../issues) для багов и предложений
 - **Discussions**: [GitHub Discussions](../../discussions) для вопросов
-- **Email**: создайте issue для контакта с разработчиком
 
 ---
 

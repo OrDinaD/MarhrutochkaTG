@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 # Добавляем путь к src для импорта модулей
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src.utils.route_analyzer import RouteAnalyzer, generate_static_minsk_smorgon_ostrovets_schedule
+from utils.route_analyzer import RouteAnalyzer, generate_static_minsk_smorgon_ostrovets_schedule
 
 
 class TestDynamicRouteCalculation:

@@ -7,7 +7,7 @@ import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from telegram.error import BadRequest
-from src.utils.telegram_safe import TelegramSafeAPI
+from utils.telegram_safe import TelegramSafeAPI
 
 
 class TestTelegramSafeAPI:

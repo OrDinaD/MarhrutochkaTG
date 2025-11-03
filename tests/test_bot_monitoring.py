@@ -14,7 +14,7 @@ class TestTimeRangeHandler:
     @pytest.mark.asyncio
     async def test_handle_time_range_choice_simple(self):
         """Тест выбора простого диапазона"""
-        from src.bot import handle_time_range_choice, CONFIRM_MONITORING
+        from bot import handle_time_range_choice, CONFIRM_MONITORING
         
         update = Mock()
         update.callback_query = Mock()
@@ -30,7 +30,7 @@ class TestTimeRangeHandler:
         context = Mock()
         context.user_data = {}
         
-        with patch('src.bot.user_data_store', {12345: {
+        with patch('bot.user_data_store', {12345: {
             'date': '2025-11-03',
             'direction': 'minsk_ostrovets',
             'time_type': 'departure'
@@ -42,7 +42,7 @@ class TestTimeRangeHandler:
     @pytest.mark.asyncio
     async def test_handle_time_range_choice_custom(self):
         """Тест выбора кастомного диапазона"""
-        from src.bot import handle_time_range_choice, CHOOSE_TIME_RANGE
+        from bot import handle_time_range_choice, CHOOSE_TIME_RANGE
         
         update = Mock()
         update.callback_query = Mock()
@@ -58,7 +58,7 @@ class TestTimeRangeHandler:
         context = Mock()
         context.user_data = {}
         
-        with patch('src.bot.user_data_store', {12345: {
+        with patch('bot.user_data_store', {12345: {
             'date': '2025-11-03',
             'direction': 'minsk_ostrovets',
             'time_type': 'departure'
@@ -70,7 +70,7 @@ class TestTimeRangeHandler:
     @pytest.mark.asyncio
     async def test_handle_time_range_choice_back(self):
         """Тест возврата к списку диапазонов"""
-        from src.bot import handle_time_range_choice, CHOOSE_TIME_RANGE
+        from bot import handle_time_range_choice, CHOOSE_TIME_RANGE
         
         update = Mock()
         update.callback_query = Mock()
@@ -86,7 +86,7 @@ class TestTimeRangeHandler:
         context = Mock()
         context.user_data = {}
         
-        with patch('src.bot.user_data_store', {12345: {
+        with patch('bot.user_data_store', {12345: {
             'date': '2025-11-03',
             'direction': 'minsk_ostrovets',
             'time_type': 'departure'
@@ -102,7 +102,7 @@ class TestMonitoringHelpers:
     @pytest.mark.asyncio
     async def test_ensure_monitoring_session_valid(self):
         """Тест проверки валидной сессии мониторинга"""
-        from src.bot import _ensure_monitoring_session
+        from bot import _ensure_monitoring_session
         
         user_id = 12345
         query = Mock()
@@ -119,7 +119,7 @@ class TestMonitoringHelpers:
             'time_range': '08:00-10:00'
         }
         
-        with patch('src.bot.user_data_store', {12345: session_data}):
+        with patch('bot.user_data_store', {12345: session_data}):
             result = await _ensure_monitoring_session(user_id, query, context)
             
             assert result is not None
@@ -128,7 +128,7 @@ class TestMonitoringHelpers:
     @pytest.mark.asyncio
     async def test_ensure_monitoring_session_missing(self):
         """Тест проверки отсутствующей сессии"""
-        from src.bot import _ensure_monitoring_session
+        from bot import _ensure_monitoring_session
         
         user_id = 12345
         query = Mock()
@@ -136,7 +136,7 @@ class TestMonitoringHelpers:
         
         context = Mock()
         
-        with patch('src.bot.user_data_store', {}):
+        with patch('bot.user_data_store', {}):
             result = await _ensure_monitoring_session(user_id, query, context)
             
             assert result is None
@@ -145,7 +145,7 @@ class TestMonitoringHelpers:
     @pytest.mark.asyncio
     async def test_ensure_monitoring_session_incomplete(self):
         """Тест проверки неполной сессии"""
-        from src.bot import _ensure_monitoring_session
+        from bot import _ensure_monitoring_session
         
         user_id = 12345
         query = Mock()
@@ -160,7 +160,7 @@ class TestMonitoringHelpers:
             'time_type': 'departure'
         }
         
-        with patch('src.bot.user_data_store', {12345: session_data}):
+        with patch('bot.user_data_store', {12345: session_data}):
             result = await _ensure_monitoring_session(user_id, query, context)
             
             assert result is None
@@ -168,7 +168,7 @@ class TestMonitoringHelpers:
     @pytest.mark.asyncio
     async def test_store_monitoring_config(self):
         """Тест сохранения конфигурации мониторинга"""
-        from src.bot import _store_monitoring_config
+        from bot import _store_monitoring_config
         
         user_id = 12345
         query = Mock()
@@ -185,8 +185,8 @@ class TestMonitoringHelpers:
             'time_range': '08:00-10:00'
         }
         
-        with patch('src.bot.user_manager') as mock_manager, \
-             patch('src.bot.job_queue', None):
+        with patch('bot.user_manager') as mock_manager, \
+             patch('bot.job_queue', None):
             
             mock_manager.set_user_monitor = Mock()
             mock_manager.get_user_monitor = Mock(return_value=session)
@@ -199,7 +199,7 @@ class TestMonitoringHelpers:
     @pytest.mark.asyncio
     async def test_store_monitoring_config_with_job_queue(self):
         """Тест сохранения конфигурации с job queue"""
-        from src.bot import _store_monitoring_config
+        from bot import _store_monitoring_config
         
         user_id = 12345
         query = Mock()
@@ -219,8 +219,8 @@ class TestMonitoringHelpers:
         mock_job_queue = Mock()
         mock_job_queue.run_repeating = Mock()
         
-        with patch('src.bot.user_manager') as mock_manager, \
-             patch('src.bot.job_queue', mock_job_queue):
+        with patch('bot.user_manager') as mock_manager, \
+             patch('bot.job_queue', mock_job_queue):
             
             mock_manager.set_user_monitor = Mock()
             mock_manager.get_user_monitor = Mock(return_value=session)
@@ -233,13 +233,13 @@ class TestMonitoringHelpers:
     @pytest.mark.asyncio
     async def test_show_adjust_menu_with_session(self):
         """Тест показа меню изменения параметров"""
-        from src.bot import _show_adjust_menu
+        from bot import _show_adjust_menu
         
         user_id = 12345
         query = Mock()
         query.edit_message_text = AsyncMock()
         
-        with patch('src.bot.user_data_store', {12345: {'date': '2025-11-03'}}):
+        with patch('bot.user_data_store', {12345: {'date': '2025-11-03'}}):
             await _show_adjust_menu(user_id, query)
             
             query.edit_message_text.assert_called_once()
@@ -247,13 +247,13 @@ class TestMonitoringHelpers:
     @pytest.mark.asyncio
     async def test_show_adjust_menu_without_session(self):
         """Тест показа меню без активной сессии"""
-        from src.bot import _show_adjust_menu
+        from bot import _show_adjust_menu
         
         user_id = 12345
         query = Mock()
         query.edit_message_text = AsyncMock()
         
-        with patch('src.bot.user_data_store', {}):
+        with patch('bot.user_data_store', {}):
             result = await _show_adjust_menu(user_id, query)
             
             assert result == ConversationHandler.END
@@ -265,7 +265,7 @@ class TestConversationStates:
     
     def test_conversation_states_defined(self):
         """Тест что все состояния определены"""
-        from src.bot import (
+        from bot import (
             CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE,
             CHOOSE_TIME_RANGE, CONFIRM_MONITORING, SEARCH_DATE
         )
@@ -288,35 +288,35 @@ class TestGlobalVariables:
     
     def test_active_monitors_initialized(self):
         """Тест инициализации active_monitors"""
-        from src.bot import active_monitors
+        from bot import active_monitors
         
         assert active_monitors is not None
         assert isinstance(active_monitors, dict)
     
     def test_user_data_store_initialized(self):
         """Тест инициализации user_data_store"""
-        from src.bot import user_data_store
+        from bot import user_data_store
         
         assert user_data_store is not None
         assert isinstance(user_data_store, dict)
     
     def test_active_callbacks_initialized(self):
         """Тест инициализации active_callbacks"""
-        from src.bot import active_callbacks
+        from bot import active_callbacks
         
         assert active_callbacks is not None
         assert isinstance(active_callbacks, dict)
     
     def test_callback_timeout_defined(self):
         """Тест определения таймаута callback"""
-        from src.bot import callback_timeout_seconds
+        from bot import callback_timeout_seconds
         
         assert isinstance(callback_timeout_seconds, int)
         assert callback_timeout_seconds > 0
     
     def test_cleanup_job_name_defined(self):
         """Тест определения имени задачи очистки"""
-        from src.bot import CLEANUP_JOB_NAME
+        from bot import CLEANUP_JOB_NAME
         
         assert isinstance(CLEANUP_JOB_NAME, str)
         assert len(CLEANUP_JOB_NAME) > 0
@@ -328,7 +328,7 @@ class TestDataDirectory:
     def test_data_dir_exists(self):
         """Тест существования директории данных"""
         import os
-        from src.bot import DATA_DIR
+        from bot import DATA_DIR
         
         # Директория должна быть создана при импорте модуля
         assert os.path.exists(DATA_DIR)

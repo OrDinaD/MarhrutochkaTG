@@ -474,7 +474,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик главного меню - универсальный для всех conversation"""
     query = update.callback_query
-    await safe_answer_callback(query)
     user_id = query.from_user.id
 
     # Очищаем состояние пользователя из хранилища

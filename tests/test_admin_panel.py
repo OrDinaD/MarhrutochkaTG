@@ -5,7 +5,7 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from src.admin_panel import AdminPanel
+from admin_panel import AdminPanel
 
 
 class TestAdminPanel:

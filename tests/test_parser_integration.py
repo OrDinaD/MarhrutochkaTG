@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Добавляем путь к src для импорта модулей
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src.utils.parser import FinalMarshrutochkaParser
-from src.utils.route_analyzer import RouteAnalyzer
+from utils.parser import FinalMarshrutochkaParser
+from utils.route_analyzer import RouteAnalyzer
 
 
 class TestParserIntegration:
@@ -153,7 +153,7 @@ class TestParserIntegration:
             {'duration': '3 ч 20 мин', 'via_smorgon': True},
         ]
         
-        from src.utils.route_analyzer import generate_static_minsk_smorgon_ostrovets_schedule
+        from utils.route_analyzer import generate_static_minsk_smorgon_ostrovets_schedule
         from datetime import datetime as dt
         
         date = dt.now().strftime("%Y-%m-%d")

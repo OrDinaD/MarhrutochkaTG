@@ -13,7 +13,7 @@ class TestConstants:
     
     def test_bot_has_conversation_states(self):
         """Тест наличия состояний conversation"""
-        from src.bot import CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE
+        from bot import CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE
         
         assert CHOOSE_DATE is not None
         assert CHOOSE_DIRECTION is not None
@@ -21,7 +21,7 @@ class TestConstants:
     
     def test_bot_has_active_monitors(self):
         """Тест наличия активных мониторингов"""
-        from src.bot import active_monitors
+        from bot import active_monitors
         
         assert active_monitors is not None
         assert isinstance(active_monitors, dict)
@@ -33,7 +33,7 @@ class TestMonitoringNotifications:
     @pytest.mark.asyncio
     async def test_send_monitoring_notification_with_context(self):
         """Тест отправки уведомления с context"""
-        from src.bot import send_monitoring_notification
+        from bot import send_monitoring_notification
         
         user_id = 12345
         routes = [
@@ -70,7 +70,7 @@ class TestMonitoringNotifications:
     @pytest.mark.asyncio
     async def test_send_monitoring_notification_without_context(self):
         """Тест отправки уведомления без context"""
-        from src.bot import send_monitoring_notification
+        from bot import send_monitoring_notification
         
         user_id = 12345
         routes = [
@@ -93,7 +93,7 @@ class TestMonitoringNotifications:
         mock_bot = Mock()
         mock_bot.send_message = AsyncMock()
         
-        with patch('src.bot.application') as mock_app:
+        with patch('bot.application') as mock_app:
             mock_app.bot = mock_bot
             
             await send_monitoring_notification(user_id, routes, config, None)
@@ -101,7 +101,7 @@ class TestMonitoringNotifications:
     @pytest.mark.asyncio
     async def test_send_monitoring_notification_many_routes(self):
         """Тест отправки уведомления с большим количеством маршрутов"""
-        from src.bot import send_monitoring_notification
+        from bot import send_monitoring_notification
         
         user_id = 12345
         
@@ -138,7 +138,7 @@ class TestMonitoringNotifications:
     @pytest.mark.asyncio
     async def test_send_monitoring_notification_error_handling(self):
         """Тест обработки ошибок при отправке уведомления"""
-        from src.bot import send_monitoring_notification
+        from bot import send_monitoring_notification
         
         user_id = 12345
         routes = []
@@ -163,7 +163,7 @@ class TestSearchDirectionHandler:
     @pytest.mark.asyncio
     async def test_handle_direction_choice(self):
         """Тест выбора направления для поиска"""
-        from src.bot import handle_direction_choice, SEARCH_DATE
+        from bot import handle_direction_choice, SEARCH_DATE
         
         update = Mock()
         update.callback_query = Mock()
@@ -179,7 +179,7 @@ class TestSearchDirectionHandler:
         context = Mock()
         context.user_data = {}
         
-        with patch('src.bot.user_data_store', {}):
+        with patch('bot.user_data_store', {}):
             result = await handle_direction_choice(update, context)
             
             assert result == SEARCH_DATE
@@ -187,7 +187,7 @@ class TestSearchDirectionHandler:
     @pytest.mark.asyncio
     async def test_handle_search_with_direction(self):
         """Тест поиска с выбранным направлением"""
-        from src.bot import handle_search_with_direction
+        from bot import handle_search_with_direction
         
         update = Mock()
         update.callback_query = Mock()
@@ -216,8 +216,8 @@ class TestSearchDirectionHandler:
         })
         mock_parser.__aenter__ = AsyncMock(return_value=mock_parser)
         
-        with patch('src.bot.user_data_store', {12345: user_data}), \
-             patch('src.bot.parser', mock_parser):
+        with patch('bot.user_data_store', {12345: user_data}), \
+             patch('bot.parser', mock_parser):
             
             result = await handle_search_with_direction(update, context)
 
@@ -227,7 +227,7 @@ class TestWebAppIntegration:
     
     def test_create_webapp_keyboard_with_additional_buttons(self):
         """Тест создания клавиатуры с дополнительными кнопками"""
-        from src.bot import create_webapp_keyboard
+        from bot import create_webapp_keyboard
         from telegram import InlineKeyboardButton
         
         additional_buttons = [
@@ -245,7 +245,7 @@ class TestWebAppIntegration:
     
     def test_create_webapp_keyboard_smorgon_routes(self):
         """Тест клавиатуры для маршрутов через Сморгонь"""
-        from src.bot import create_webapp_keyboard
+        from bot import create_webapp_keyboard
         
         keyboard = create_webapp_keyboard('minsk_smorgon')
         
@@ -268,14 +268,14 @@ class TestModuleInitialization:
     
     def test_logging_configured(self):
         """Тест настройки логирования"""
-        from src.bot import logger
+        from bot import logger
         
         assert logger is not None
     
     def test_data_dir_created(self):
         """Тест создания директории данных"""
         import os
-        from src.bot import DATA_DIR
+        from bot import DATA_DIR
         
         assert os.path.exists(DATA_DIR)
         assert os.path.isdir(DATA_DIR)
@@ -286,7 +286,7 @@ class TestFormatMonitorConfig:
     
     def test_format_monitor_config_all_fields(self):
         """Тест форматирования с всеми полями"""
-        from src.bot import format_monitor_config
+        from bot import format_monitor_config
         
         config = {
             'date': '2025-11-03',
@@ -305,7 +305,7 @@ class TestFormatMonitorConfig:
     
     def test_format_monitor_config_both_directions(self):
         """Тест форматирования для обоих направлений"""
-        from src.bot import format_monitor_config
+        from bot import format_monitor_config
         
         config = {
             'date': '2025-11-03',
@@ -321,7 +321,7 @@ class TestFormatMonitorConfig:
     
     def test_format_monitor_config_arrival_time(self):
         """Тест форматирования с временем прибытия"""
-        from src.bot import format_monitor_config
+        from bot import format_monitor_config
         
         config = {
             'date': '2025-11-03',

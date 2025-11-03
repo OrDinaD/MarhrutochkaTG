@@ -4,7 +4,7 @@
 """
 
 import pytest
-from src.security import SecurityValidator
+from security import SecurityValidator
 
 
 class TestSecurityValidator:

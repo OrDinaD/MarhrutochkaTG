@@ -57,31 +57,31 @@ jobs:
           TEST_MODE: "true"
         run: |
           echo "::group::🤖 Bot Module Import Tests"
-          python -c "
+          cd src && python -c "
           import sys
-          sys.path.append('src')
           try:
-              from bot import get_main_menu_keyboard, get_date_keyboard
-              print('✅ Bot modules imported successfully')
+              from utils.keyboards import KeyboardFactory
+              print('✅ KeyboardFactory imported successfully')
               
               # Тестируем основные функции
-              keyboard = get_main_menu_keyboard(12345)
+              keyboard = KeyboardFactory.get_main_menu_keyboard(12345)
               print('✅ Main menu keyboard created')
               
-              date_keyboard = get_date_keyboard()
+              date_keyboard = KeyboardFactory.get_date_keyboard()
               print('✅ Date keyboard created')
               
               print('✅ All bot functionality tests passed')
           except Exception as e:
               print(f'❌ Bot functionality test failed: {e}')
+              import traceback
+              traceback.print_exc()
               sys.exit(1)
-          "
+          " && cd ..
           echo "::endgroup::"
           
           echo "::group::🔧 Memory-only Architecture Tests"
-          python -c "
+          cd src && python -c "
           import sys
-          sys.path.append('src')
           try:
               from managers.user_manager import user_manager
               print('✅ UserManager imported successfully')
@@ -95,22 +95,25 @@ jobs:
               print('✅ All memory-only architecture tests passed')
           except Exception as e:
               print(f'❌ Memory architecture test failed: {e}')
+              import traceback
+              traceback.print_exc()
               sys.exit(1)
-          "
+          " && cd ..
           echo "::endgroup::"
       
       - name: 🔗 API Integration Tests
         run: |
           echo "::group::🔗 Testing External APIs"
-          python -c "
+          cd src && python -c "
           import sys
-          sys.path.append('src')
           try:
-              from utils import FinalMarshrutochkaParser
+              from utils.parser import FinalMarshrutochkaParser
               print('✅ Parser module imported successfully')
           except Exception as e:
               print(f'⚠️ Parser test warning: {e}')
-          "
+              import traceback
+              traceback.print_exc()
+          " && cd ..
           echo "::endgroup::"
 
   # ================== ОТЧЁТЫ ==================
