@@ -93,7 +93,23 @@ class RedisMonitoringStorage(MonitoringStorage):
         # Ленивая инициализация клиента, чтобы не падать в тестах без Redis
         import redis
 
-        self._redis = redis.from_url(url, decode_responses=True, health_check_interval=10)
+        # Best practices для production (Railway):
+        # - decode_responses для работы со строками вместо bytes
+        # - health_check_interval для автоматической проверки соединения
+        # - socket_keepalive для поддержания long-lived соединений
+        # - socket_connect_timeout для защиты от зависаний
+        # - retry_on_timeout для автоматических повторных попыток
+        self._redis = redis.from_url(
+            url,
+            decode_responses=True,
+            health_check_interval=30,  # проверка каждые 30 сек
+            socket_keepalive=True,  # TCP keepalive для стабильности
+            socket_connect_timeout=5,  # таймаут подключения 5 сек
+            socket_timeout=5,  # таймаут операций 5 сек
+            retry_on_timeout=True,  # автоматический retry при таймауте
+            retry_on_error=[redis.exceptions.ConnectionError, redis.exceptions.TimeoutError],  # retry на этих ошибках
+            max_connections=10,  # пул соединений для производительности
+        )
 
     def save_monitor(self, user_id: int, config: dict) -> None:
         self._redis.hset(self.KEY, str(user_id), json.dumps(config, ensure_ascii=False))

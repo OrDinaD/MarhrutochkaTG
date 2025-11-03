@@ -92,10 +92,16 @@
 # 1. Fork этот репозиторий
 # 2. Создайте новый проект в Railway
 # 3. Подключите GitHub репозиторий
-# 4. Добавьте переменные окружения:
+# 4. Добавьте Redis:
+#    Railway Dashboard → New → Database → Add Redis
+# 5. Добавьте переменные окружения:
 TELEGRAM_BOT_TOKEN=ваш_токен_бота
 ADMIN_TELEGRAM_ID=ваш_telegram_id
+MONITORING_STORAGE=redis
 ```
+
+⚠️ **Важно:** Без Redis мониторинги будут теряться при каждом деплое!  
+📖 Подробнее: [docs/REDIS_SETUP.md](docs/REDIS_SETUP.md)
 
 Railway автоматически задеплоит бота после коммита.
 
@@ -136,10 +142,15 @@ python main.py
 |-----------|-------------|----------|---------|
 | `TELEGRAM_BOT_TOKEN` | ✅ | Токен Telegram бота | `1234567890:ABCDEF...` |
 | `ADMIN_TELEGRAM_ID` | ✅ | ID администратора | `123456789` |
+| `MONITORING_STORAGE` | ⚠️ Railway | Тип хранилища (`redis` или `file`) | `redis` |
+| `REDIS_URL` | ⚠️ Railway | URL Redis (автоматически от Railway) | `redis://...` |
 | `LOG_LEVEL` | ❌ | Уровень логирования | `INFO` / `DEBUG` / `ERROR` |
-| `DEVELOPMENT_MODE` | ❌ | Режим разработки | `true` / `false` |
 | `MONITORING_INTERVAL` | ❌ | Интервал мониторинга (сек) | `30` |
-| `MAX_CONCURRENT_MONITORS` | ❌ | Макс. одновременных мониторов | `50` |
+
+**⚠️ Для Railway обязательно:**
+- Добавьте Redis сервис в Railway dashboard
+- Установите `MONITORING_STORAGE=redis`
+- Иначе мониторинги будут теряться при каждом деплое!
 
 </details>
 
