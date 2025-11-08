@@ -110,7 +110,7 @@ async def track_callback_end(user_id: int):
         duration = (datetime.now() - callback_info['start_time']).total_seconds()
         logger.info(f"✅ [{user_id}] Завершен callback: {callback_info['handler']} ({duration:.2f}s)")
 
-async def cleanup_stuck_callbacks():
+async def cleanup_stuck_callbacks(context: ContextTypes.DEFAULT_TYPE):
     """Очистка застрявших callback handlers"""
     current_time = datetime.now()
     stuck_users = []

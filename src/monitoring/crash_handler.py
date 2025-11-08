@@ -386,31 +386,37 @@ class CrashHandler:
         except Exception as e:
             print(f"❌ Failed to save crash report: {e}")
 
-    def setup_crash_handling(self):
-        """Настраивает обработку крашей"""
-        def custom_excepthook(exc_type, exc_value, exc_traceback):
-            """Кастомный обработчик исключений"""
-            if issubclass(exc_type, KeyboardInterrupt):
-                # Игнорируем KeyboardInterrupt (Ctrl+C)
-                sys.__excepthook__(exc_type, exc_value, exc_traceback)
-                return
+    def handle_crash(self, exception: Exception, tb_str=None):
+        """Синхронный обработчик крашей"""
+        try:
+            print(f"🔥 CRASH DETECTED: {type(exception).__name__}: {exception}")
             
-            # Формируем строку traceback
-            tb_str = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+            # Если tb_str не передан или это dict, получаем traceback
+            if tb_str is None or isinstance(tb_str, dict):
+                tb_str = traceback.format_exc()
             
-            # Обрабатываем краш
+            # Генерируем отчет о краше
+            crash_report = self.generate_crash_report(exception, tb_str)
+            
+            # Сохраняем локально
+            crash_file = self.save_crash_report(crash_report)
+            print(f"💾 Crash report saved: {crash_file}")
+            
+            # Отправляем уведомление асинхронно
             try:
-                self.handle_crash(exc_value, tb_str)
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._async_crash_handling(crash_report, crash_file))
+                loop.close()
             except Exception as e:
-                # Если наш обработчик упал, используем стандартный
-                print(f"Crash handler failed: {e}")
-                sys.__excepthook__(exc_type, exc_value, exc_traceback)
-        
-        # Устанавливаем кастомный обработчик
-        sys.excepthook = custom_excepthook
-        
-        # Логируем активацию
-        print("🛡️ Crash handler activated")
+                print(f"⚠️ Failed to send crash notification: {e}")
+            
+        except Exception as e:
+            print(f"❌ Error in crash handler: {e}")
+            traceback.print_exc()
+    
+    def setup_crash_handling(self):
         """Настраивает обработку крашей"""
         def custom_excepthook(exc_type, exc_value, exc_traceback):
             """Кастомный обработчик исключений"""

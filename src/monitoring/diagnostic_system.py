@@ -139,6 +139,27 @@ class DiagnosticSystem:
             }
         }
     
+    def analyze_crash(self, crash_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Синхронный метод анализа краша (для обратной совместимости)"""
+        error_type = crash_data.get('error_type', 'Unknown')
+        
+        # Ищем известное решение
+        solution = self.solutions_db.get(error_type, {
+            "category": "unknown",
+            "severity": "medium",
+            "description": "Unknown error type",
+            "solutions": ["Check logs for more details"],
+            "prevention": []
+        })
+        
+        return {
+            "category": solution.get('category', 'unknown'),
+            "severity": solution.get('severity', 'medium'),
+            "solutions": solution.get('solutions', []),
+            "prevention": solution.get('prevention', []),
+            "description": solution.get('description', '')
+        }
+    
     async def analyze_crash_report_from_exception(self, exception: Exception) -> Optional[Dict[str, Any]]:
         """Создает и анализирует crash report из исключения"""
         try:
