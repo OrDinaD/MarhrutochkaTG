@@ -36,6 +36,16 @@ except Exception as e:
     logging.warning(f"Failed to initialize RailwayLoggerEnhanced: {e}")
     railway_logger = logging.getLogger("MarshrutochkaTG")
 
+# Импортируем систему мониторинга маршрутов
+from .route_monitoring import (
+    RouteMonitoringSystem,
+    RouteMonitoringError,
+    RouteMonitoringValidator,
+    route_monitoring_system,
+    check_routes_for_user_job,
+    monitoring_logger
+)
+
 __all__ = [
     'crash_handler',
     'diagnostic_system',
@@ -43,5 +53,11 @@ __all__ = [
     'setup_logging',
     'get_logger',
     'RailwayLoggerEnhanced',
-    'railway_logger'
+    'railway_logger',
+    'RouteMonitoringSystem',
+    'RouteMonitoringError',
+    'RouteMonitoringValidator',
+    'route_monitoring_system',
+    'check_routes_for_user_job',
+    'monitoring_logger'
 ]

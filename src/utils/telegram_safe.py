@@ -70,21 +70,15 @@ class TelegramSafeAPI:
     async def safe_answer_callback(query, text: str = "", timeout: int = 5):
         """Безопасный ответ на callback query с таймаутом"""
         try:
-            # Проверяем, был ли callback уже отвечен
-            if hasattr(query, '_answered') and query._answered:
-                logger.debug("Callback query уже был отвечен")
-                return
-                
             await asyncio.wait_for(query.answer(text), timeout=timeout)
-            # Помечаем как отвеченный
-            query._answered = True
             
         except asyncio.TimeoutError:
             logger.error(f"⏰ Таймаут при ответе на callback ({timeout}s)")
         except Exception as e:
             # Игнорируем ошибки о том, что callback уже был отвечен
-            if "query is too old" in str(e).lower() or "invalid query id" in str(e).lower():
-                logger.debug(f"Callback query устарел: {e}")
+            error_msg = str(e).lower()
+            if any(msg in error_msg for msg in ["query is too old", "invalid query id", "already answered"]):
+                logger.debug(f"Callback query устарел или уже отвечен: {e}")
             else:
                 logger.error(f"Ошибка при ответе на callback: {e}")
 

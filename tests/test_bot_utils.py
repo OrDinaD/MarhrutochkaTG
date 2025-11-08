@@ -6,12 +6,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from bot import (
     format_monitor_config,
-    check_time_criteria,
     format_routes_message,
-    filter_routes_by_criteria,
     create_webapp_url,
     create_webapp_keyboard,
 )
+from monitoring.route_monitoring import route_monitoring_system
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 
@@ -35,37 +34,37 @@ def test_check_time_criteria():
     # Test case 1: Time within range
     route = {'departure_time': '10:00'}
     config = {'time_type': 'departure', 'time_range': '08:00-12:00'}
-    assert check_time_criteria(route, config) is True
+    assert route_monitoring_system.check_time_criteria(route, config, user_id=1) is True
 
     # Test case 2: Time outside range
     route = {'departure_time': '14:00'}
     config = {'time_type': 'departure', 'time_range': '08:00-12:00'}
-    assert check_time_criteria(route, config) is False
+    assert route_monitoring_system.check_time_criteria(route, config, user_id=1) is False
 
     # Test case 3: Time on edge of range
     route = {'departure_time': '08:00'}
     config = {'time_type': 'departure', 'time_range': '08:00-12:00'}
-    assert check_time_criteria(route, config) is True
+    assert route_monitoring_system.check_time_criteria(route, config, user_id=1) is True
 
     # Test case 4: Time range across midnight
     route = {'departure_time': '23:00'}
     config = {'time_type': 'departure', 'time_range': '22:00-02:00'}
-    assert check_time_criteria(route, config) is True
+    assert route_monitoring_system.check_time_criteria(route, config, user_id=1) is True
 
     # Test case 5: Time range across midnight (after midnight)
     route = {'departure_time': '01:00'}
     config = {'time_type': 'departure', 'time_range': '22:00-02:00'}
-    assert check_time_criteria(route, config) is True
+    assert route_monitoring_system.check_time_criteria(route, config, user_id=1) is True
 
     # Test case 6: 'any' time type
     route = {'departure_time': '10:00'}
     config = {'time_type': 'any', 'time_range': '08:00-12:00'}
-    assert check_time_criteria(route, config) is True
+    assert route_monitoring_system.check_time_criteria(route, config, user_id=1) is True
 
     # Test case 7: Invalid time format in route
     route = {'departure_time': 'invalid-time'}
     config = {'time_type': 'departure', 'time_range': '08:00-12:00'}
-    assert check_time_criteria(route, config) is True
+    assert route_monitoring_system.check_time_criteria(route, config, user_id=1) is True
 
 def test_format_routes_message():
     routes_data = {
@@ -94,24 +93,32 @@ def test_filter_routes_by_criteria():
 
     # Test case 1: Filter by direction 'minsk_ostrovets'
     config = {'direction': 'minsk_ostrovets', 'time_range': 'any'}
-    filtered_routes = filter_routes_by_criteria(routes_data, config)
+    filtered_routes = route_monitoring_system.filter_routes_by_criteria(
+        routes_data, config, user_id=1
+    )
     assert len(filtered_routes) == 1
     assert filtered_routes[0]['departure_time'] == '10:00'
 
     # Test case 2: Filter by direction 'both'
     config = {'direction': 'both', 'time_range': 'any'}
-    filtered_routes = filter_routes_by_criteria(routes_data, config)
+    filtered_routes = route_monitoring_system.filter_routes_by_criteria(
+        routes_data, config, user_id=1
+    )
     assert len(filtered_routes) == 2
 
     # Test case 3: Filter by time
     config = {'direction': 'both', 'time_range': '08:00-12:00', 'time_type': 'departure'}
-    filtered_routes = filter_routes_by_criteria(routes_data, config)
+    filtered_routes = route_monitoring_system.filter_routes_by_criteria(
+        routes_data, config, user_id=1
+    )
     assert len(filtered_routes) == 1
     assert filtered_routes[0]['departure_time'] == '10:00'
 
     # Test case 4: No suitable routes
     config = {'direction': 'both', 'time_range': '14:00-16:00', 'time_type': 'departure'}
-    filtered_routes = filter_routes_by_criteria(routes_data, config)
+    filtered_routes = route_monitoring_system.filter_routes_by_criteria(
+        routes_data, config, user_id=1
+    )
     assert len(filtered_routes) == 0
 
 def test_create_webapp_url():

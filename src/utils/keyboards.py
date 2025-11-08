@@ -21,7 +21,9 @@ class KeyboardFactory:
             [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
             [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
             [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")],
-            [InlineKeyboardButton("🌐 Открыть сайт", callback_data="open_website")]
+            [InlineKeyboardButton("� Автопокупка билетов", callback_data="autobuy_menu")],
+            [InlineKeyboardButton("🔐 Управление аккаунтом", callback_data="account_menu")],
+            [InlineKeyboardButton("�🌐 Открыть сайт", callback_data="open_website")]
         ]
 
         # Добавляем админ-панель для администратора
@@ -60,7 +62,7 @@ class KeyboardFactory:
         return InlineKeyboardMarkup(dates)
     
     @staticmethod
-    def get_direction_keyboard(include_all: bool = True) -> InlineKeyboardMarkup:
+    def get_direction_keyboard(include_all: bool = False) -> InlineKeyboardMarkup:
         """Создает клавиатуру для выбора направления"""
         keyboard = [
             [InlineKeyboardButton("🏙️ Минск → Островец", callback_data="dir_minsk_ostrovets")],
