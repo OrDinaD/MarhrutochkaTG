@@ -21,9 +21,9 @@ class KeyboardFactory:
             [InlineKeyboardButton("🔍 Поиск рейсов", callback_data="search_routes")],
             [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
             [InlineKeyboardButton("📊 Мои мониторинги", callback_data="my_monitors")],
-            [InlineKeyboardButton("� Автопокупка билетов", callback_data="autobuy_menu")],
+            [InlineKeyboardButton("🤖 Автопокупка билетов", callback_data="autobuy_menu")],
             [InlineKeyboardButton("🔐 Управление аккаунтом", callback_data="account_menu")],
-            [InlineKeyboardButton("�🌐 Открыть сайт", callback_data="open_website")]
+            [InlineKeyboardButton("🌐 Открыть сайт", callback_data="open_website")]
         ]
 
         # Добавляем админ-панель для администратора

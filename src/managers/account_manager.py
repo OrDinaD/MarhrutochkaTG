@@ -3,12 +3,15 @@
 Хранит учетные данные пользователей (зашифрованные).
 """
 
+import base64
 import json
 import logging
 from typing import Optional, Dict
 from pathlib import Path
 import hashlib
 import os
+
+from cryptography.fernet import Fernet, InvalidToken
 
 logger = logging.getLogger(__name__)
 
@@ -26,61 +29,58 @@ class AccountManager:
         self.storage_file = Path(storage_file)
         self.storage_file.parent.mkdir(parents=True, exist_ok=True)
         self.accounts: Dict[int, Dict] = {}
+        self._raw_encryption_key = os.getenv('ENCRYPTION_KEY', 'default_key_change_in_production')
+        self._cipher: Optional[Fernet] = None
+        self._legacy_key = self._raw_encryption_key.encode()
         self._load_accounts()
 
-    def _get_encryption_key(self) -> bytes:
-        """
-        Получить ключ шифрования.
-        В production следует использовать переменную окружения.
-        """
-        key = os.getenv('ENCRYPTION_KEY', 'default_key_change_in_production')
-        return key.encode()
+    def _derive_fernet_key(self) -> bytes:
+        """Формирует корректный ключ для Fernet на основе исходной секретной строки."""
+        digest = hashlib.sha256(self._raw_encryption_key.encode()).digest()
+        return base64.urlsafe_b64encode(digest)
+
+    def _get_cipher(self) -> Fernet:
+        """Лениво создает и кеширует экземпляр Fernet."""
+        if not self._cipher:
+            self._cipher = Fernet(self._derive_fernet_key())
+        return self._cipher
 
     def _encrypt(self, data: str) -> str:
-        """
-        Простое шифрование данных (для production использовать cryptography).
-        
-        Args:
-            data: Данные для шифрования
-            
-        Returns:
-            Зашифрованные данные
-        """
-        # Простое XOR шифрование (для production использовать cryptography.fernet)
-        key = self._get_encryption_key()
-        encrypted = []
-        
-        for i, char in enumerate(data):
-            key_char = key[i % len(key)]
-            encrypted_char = chr(ord(char) ^ key_char)
-            encrypted.append(encrypted_char)
-        
-        return ''.join(encrypted).encode().hex()
+        """Шифрует данные с использованием Fernet."""
+        cipher = self._get_cipher()
+        token = cipher.encrypt(data.encode('utf-8'))
+        return token.decode('utf-8')
 
-    def _decrypt(self, encrypted_data: str) -> str:
-        """
-        Расшифровать данные.
-        
-        Args:
-            encrypted_data: Зашифрованные данные
-            
-        Returns:
-            Расшифрованные данные
-        """
+    def _legacy_decrypt(self, encrypted_data: str) -> Optional[str]:
+        """Расшифровывает данные, сохраненные старым XOR-алгоритмом."""
         try:
-            data = bytes.fromhex(encrypted_data).decode()
-            key = self._get_encryption_key()
-            decrypted = []
-            
-            for i, char in enumerate(data):
-                key_char = key[i % len(key)]
-                decrypted_char = chr(ord(char) ^ key_char)
-                decrypted.append(decrypted_char)
-            
-            return ''.join(decrypted)
+            raw = bytes.fromhex(encrypted_data).decode()
+        except ValueError:
+            return None
+        decrypted = []
+        for i, char in enumerate(raw):
+            key_char = self._legacy_key[i % len(self._legacy_key)]
+            decrypted_char = chr(ord(char) ^ key_char)
+            decrypted.append(decrypted_char)
+        return ''.join(decrypted)
+
+    def _decrypt_value(self, encrypted_data: str) -> tuple[str, bool]:
+        """Возвращает расшифрованное значение и флаг необходимости миграции."""
+        if not encrypted_data:
+            return "", False
+        cipher = self._get_cipher()
+        try:
+            decrypted = cipher.decrypt(encrypted_data.encode('utf-8')).decode('utf-8')
+            return decrypted, False
+        except InvalidToken:
+            legacy_value = self._legacy_decrypt(encrypted_data)
+            if legacy_value is not None:
+                logger.warning("Обнаружены учетные данные, зашифрованные устаревшим методом. Выполняем миграцию.")
+                return legacy_value, True
+            logger.error("Не удалось расшифровать данные: неверный формат токена")
         except Exception as e:
             logger.error(f"Ошибка расшифровки: {e}")
-            return ""
+        return "", False
 
     def _load_accounts(self):
         """Загрузить аккаунты из файла"""
@@ -145,10 +145,17 @@ class AccountManager:
         try:
             if user_id in self.accounts:
                 account = self.accounts[user_id]
-                return {
-                    'phone': self._decrypt(account['phone']),
-                    'password': self._decrypt(account['password'])
-                }
+                phone, phone_legacy = self._decrypt_value(account.get('phone', ''))
+                password, password_legacy = self._decrypt_value(account.get('password', ''))
+
+                if phone_legacy or password_legacy:
+                    account['phone'] = self._encrypt(phone)
+                    account['password'] = self._encrypt(password)
+                    self._save_accounts()
+
+                if phone and password:
+                    return {'phone': phone, 'password': password}
+                logger.error(f"Не удалось расшифровать данные аккаунта пользователя {user_id}")
             return None
         except Exception as e:
             logger.error(f"Ошибка получения аккаунта: {e}")

@@ -93,23 +93,52 @@ class TelegramSafeAPI:
         """Безопасная отправка сообщения с таймаутом"""
         try:
             async def _send_message():
-                if hasattr(update_or_context, 'message'):
-                    # Это Update
-                    await update_or_context.message.reply_text(
+                # Пытаемся отправить через сообщение апдейта
+                message = getattr(update_or_context, 'message', None)
+                if message:
+                    await message.reply_text(
                         text=text,
                         reply_markup=reply_markup,
                         parse_mode=parse_mode
                     )
-                elif hasattr(update_or_context, 'bot'):
-                    # Это Context с ботом
-                    chat_id = update_or_context.get('chat_id')
+                    return
+
+                effective_message = getattr(update_or_context, 'effective_message', None)
+                if effective_message:
+                    await effective_message.reply_text(
+                        text=text,
+                        reply_markup=reply_markup,
+                        parse_mode=parse_mode
+                    )
+                    return
+
+                # CallbackContext или подобные объекты
+                if hasattr(update_or_context, 'bot'):
+                    bot = update_or_context.bot
+                    chat_id = getattr(update_or_context, 'chat_id', None)
                     if chat_id:
-                        await update_or_context.bot.send_message(
+                        await bot.send_message(
                             chat_id=chat_id,
                             text=text,
                             reply_markup=reply_markup,
                             parse_mode=parse_mode
                         )
+                        return
+
+                # Словари/кастомные структуры (обратная совместимость)
+                if isinstance(update_or_context, dict):
+                    bot = update_or_context.get('bot')
+                    chat_id = update_or_context.get('chat_id')
+                    if bot and chat_id:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=text,
+                            reply_markup=reply_markup,
+                            parse_mode=parse_mode
+                        )
+                        return
+
+                logger.error("Не удалось определить получателя для safe_send_message")
                         
             await asyncio.wait_for(_send_message(), timeout=timeout)
             

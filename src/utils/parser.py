@@ -13,14 +13,16 @@ logger = logging.getLogger(__name__)
 class FinalMarshrutochkaParser:
     """Финальный парсер для сайта билет.маршруточка.бел"""
 
-    def __init__(self, enable_cache: bool = False):
+    def __init__(self, enable_cache: bool = True, request_timeout: int = 15):
         self.base_url = "https://билет.маршруточка.бел"
         self.session = None
         self.enable_cache = enable_cache
         self._cache: Dict[tuple, str] = {}
+        self.request_timeout = request_timeout
+        self._client_timeout = aiohttp.ClientTimeout(total=self.request_timeout)
         
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(timeout=self._client_timeout)
         return self
         
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -34,6 +36,11 @@ class FinalMarshrutochkaParser:
     def _cache_key(self, from_city_id: str, to_city_id: str, date: str) -> tuple:
         """Create a cache key for schedule requests."""
         return from_city_id, to_city_id, date
+
+    def _ensure_session(self) -> None:
+        """Гарантирует наличие активной сессии aiohttp."""
+        if not self.session or self.session.closed:
+            self.session = aiohttp.ClientSession(timeout=self._client_timeout)
     
     async def get_schedule_html(self, from_city_id: str, to_city_id: str, date: str) -> Optional[str]:
         """Получить HTML с расписанием"""
@@ -53,6 +60,8 @@ class FinalMarshrutochkaParser:
 
             logger.info(f"Запрашиваем расписание: {url} с параметрами {params}")
 
+            self._ensure_session()
+
             async with self.session.get(url, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -67,6 +76,9 @@ class FinalMarshrutochkaParser:
                 else:
                     logger.error(f"HTTP ошибка: {response.status}")
                     return None
+        except asyncio.TimeoutError:
+            logger.error("Таймаут при запросе HTML расписания")
+            return None
         except Exception as e:
             logger.error(f"Ошибка при запросе HTML расписания: {e}")
             return None
@@ -76,7 +88,7 @@ class FinalMarshrutochkaParser:
         routes = []
         
         try:
-            soup = BeautifulSoup(html_content, 'html.parser')
+            soup = BeautifulSoup(html_content, 'lxml')
             
             # Ищем все блоки маршрутов
             route_blocks = soup.find_all('div', class_='nf-route')
@@ -251,32 +263,34 @@ class FinalMarshrutochkaParser:
         
         return []
     
-    async def get_routes_minsk_ostrovets(self, date: str) -> List[Dict]:
+    async def get_routes_minsk_ostrovets(self, date: str, real_routes: Optional[List[Dict]] = None) -> List[Dict]:
         """Получить маршруты Минск-Островец (статическое расписание через Сморгонь)"""
         from .route_analyzer import generate_static_minsk_smorgon_ostrovets_schedule
         
         # Используем статическое расписание для маршрута через Сморгонь
         try:
             # Сначала получаем реальные данные для улучшения расчетов времени
-            real_routes = await self.search_routes("Минск", "Островец", date)
+            routes_source = real_routes if real_routes is not None else await self.search_routes("Минск", "Островец", date)
             
             # Передаем реальные данные в генератор статического расписания
-            static_routes = generate_static_minsk_smorgon_ostrovets_schedule(date, real_routes)
+            static_routes = generate_static_minsk_smorgon_ostrovets_schedule(date, routes_source)
             logger.info(f"Сгенерировано {len(static_routes)} статических маршрутов Минск-Островец через Сморгонь с учетом реальных данных")
             return static_routes
         except Exception as e:
             logger.error(f"Ошибка генерации статического расписания: {e}")
             # Fallback на обычный парсинг
-            return await self.search_routes("Минск", "Островец", date)
+            return real_routes if real_routes is not None else await self.search_routes("Минск", "Островец", date)
     
-    async def get_routes_ostrovets_minsk(self, date: str) -> List[Dict]:
+    async def get_routes_ostrovets_minsk(self, date: str, preloaded_routes: Optional[List[Dict]] = None) -> List[Dict]:
         """Получить маршруты Островец-Минск"""
+        if preloaded_routes is not None:
+            return preloaded_routes
         return await self.search_routes("Островец", "Минск", date)
     
-    async def get_routes_minsk_smorgon(self, date: str) -> List[Dict]:
+    async def get_routes_minsk_smorgon(self, date: str, base_routes: Optional[List[Dict]] = None) -> List[Dict]:
         """Получить маршруты Минск-Сморгонь (включая транзитные)"""
         # Получаем все маршруты Минск-Островец и фильтруем те, что проходят через Сморгонь
-        all_routes = await self.search_routes("Минск", "Островец", date)
+        all_routes = base_routes if base_routes is not None else await self.search_routes("Минск", "Островец", date)
         smorgon_routes = []
         
         for route in all_routes:
@@ -305,10 +319,10 @@ class FinalMarshrutochkaParser:
         
         return smorgon_routes
     
-    async def get_routes_smorgon_minsk(self, date: str) -> List[Dict]:
+    async def get_routes_smorgon_minsk(self, date: str, base_routes: Optional[List[Dict]] = None) -> List[Dict]:
         """Получить маршруты Сморгонь-Минск (включая транзитные)"""
         # Получаем все маршруты Островец-Минск и фильтруем те, что проходят через Сморгонь
-        all_routes = await self.search_routes("Островец", "Минск", date)
+        all_routes = base_routes if base_routes is not None else await self.search_routes("Островец", "Минск", date)
         smorgon_routes = []
         
         for route in all_routes:
@@ -336,10 +350,10 @@ class FinalMarshrutochkaParser:
         
         return smorgon_routes
     
-    async def get_routes_ostrovets_smorgon(self, date: str) -> List[Dict]:
+    async def get_routes_ostrovets_smorgon(self, date: str, base_routes: Optional[List[Dict]] = None) -> List[Dict]:
         """Получить маршруты Островец-Сморгонь (включая транзитные)"""
         # Получаем все маршруты Островец-Минск и фильтруем те, что проходят через Сморгонь
-        all_routes = await self.search_routes("Островец", "Минск", date)
+        all_routes = base_routes if base_routes is not None else await self.search_routes("Островец", "Минск", date)
         smorgon_routes = []
         
         for route in all_routes:
@@ -368,10 +382,10 @@ class FinalMarshrutochkaParser:
         
         return smorgon_routes
     
-    async def get_routes_smorgon_ostrovets(self, date: str) -> List[Dict]:
+    async def get_routes_smorgon_ostrovets(self, date: str, base_routes: Optional[List[Dict]] = None) -> List[Dict]:
         """Получить маршруты Сморгонь-Островец (включая транзитные)"""
         # Получаем все маршруты Минск-Островец и фильтруем те, что проходят через Сморгонь
-        all_routes = await self.search_routes("Минск", "Островец", date)
+        all_routes = base_routes if base_routes is not None else await self.search_routes("Минск", "Островец", date)
         smorgon_routes = []
         
         # Получаем среднее время от Сморгони до Островца и от Минска до Сморгони на основе реальных данных
@@ -448,25 +462,56 @@ class FinalMarshrutochkaParser:
         }
         
         try:
+            logger.info("Параллельное получение базовых направлений...")
+            minsk_ostrovets_task = asyncio.create_task(
+                self.search_routes("Минск", "Островец", date)
+            )
+            ostrovets_minsk_task = asyncio.create_task(
+                self.search_routes("Островец", "Минск", date)
+            )
+
+            minsk_ostrovets_base, ostrovets_minsk_base = await asyncio.gather(
+                minsk_ostrovets_task,
+                ostrovets_minsk_task
+            )
+
             # Получаем основные маршруты
             logger.info("Поиск маршрутов Минск-Островец...")
-            result['minsk_to_ostrovets'] = await self.get_routes_minsk_ostrovets(date)
+            result['minsk_to_ostrovets'] = await self.get_routes_minsk_ostrovets(
+                date,
+                real_routes=minsk_ostrovets_base
+            )
 
             logger.info("Поиск маршрутов Островец-Минск...")
-            result['ostrovets_to_minsk'] = await self.get_routes_ostrovets_minsk(date)
+            result['ostrovets_to_minsk'] = await self.get_routes_островets_minsk(
+                date,
+                preloaded_routes=ostrovets_minsk_base
+            )
             
             # Получаем маршруты через Сморгонь
             logger.info("Поиск маршрутов Минск-Сморгонь...")
-            result['minsk_to_smorgon'] = await self.get_routes_minsk_smorgon(date)
+            result['minsk_to_smorgon'] = await self.get_routes_minsk_smorgon(
+                date,
+                base_routes=minsk_ostrovets_base
+            )
             
             logger.info("Поиск маршрутов Сморгонь-Минск...")
-            result['smorgon_to_minsk'] = await self.get_routes_smorgon_minsk(date)
+            result['smorgon_to_minsk'] = await self.get_routes_smorgon_minsk(
+                date,
+                base_routes=ostrovets_minsk_base
+            )
             
             logger.info("Поиск маршрутов Островец-Сморгонь...")
-            result['ostrovets_to_smorgon'] = await self.get_routes_ostrovets_smorgon(date)
+            result['ostrovets_to_smorgon'] = await self.get_routes_островets_smorgon(
+                date,
+                base_routes=ostrovets_minsk_base
+            )
             
             logger.info("Поиск маршрутов Сморгонь-Островец...")
-            result['smorgon_to_ostrovets'] = await self.get_routes_smorgon_ostrovets(date)
+            result['smorgon_to_ostrovets'] = await self.get_routes_smorgon_ostrovets(
+                date,
+                base_routes=minsk_ostrovets_base
+            )
             
             # Подсчитываем общее количество найденных маршрутов
             total_routes = sum(len(routes) for routes in result.values() if isinstance(routes, list))
