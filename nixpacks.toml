@@ -2,13 +2,7 @@
 # Документация: https://nixpacks.com/docs/configuration/file
 
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
-
-[phases.install]
-cmds = [
-  "python -m pip install --upgrade pip",
-  "python -m pip install -r requirements.txt"
-]
+nixPkgs = ["python311"]
 
 [start]
 cmd = "python test_railway.py && python main.py"
