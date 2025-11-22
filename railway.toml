@@ -6,7 +6,7 @@ startCommand = "python main.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 
-# Указываем что это worker, а не web service
+# Указываем что это worker, а не web service - отключаем HTTP healthcheck
 [deploy.healthcheck]
 enabled = false
 
@@ -16,3 +16,7 @@ PYTHONUNBUFFERED = "1"
 MONITORING_ENABLED = "true"
 MONITORING_INTERVAL_MINUTES = "5"
 MONITORING_STORAGE = "redis"
+
+# Важно: это worker процесс, не web сервис - без порта
+[service]
+type = "worker"
