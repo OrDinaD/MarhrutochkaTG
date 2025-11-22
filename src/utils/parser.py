@@ -6,6 +6,7 @@ from typing import List, Dict, Optional
 import json
 from bs4 import BeautifulSoup
 import re
+from monitoring.railway_logger_enhanced import railway_logger
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +49,10 @@ class FinalMarshrutochkaParser:
             cache_key = self._cache_key(from_city_id, to_city_id, date)
 
             if self.enable_cache and cache_key in self._cache:
-                logger.info(f"Используем кэш для {cache_key}")
+                railway_logger.info(f"Используем кэш для {cache_key}", extra={"cache_key": str(cache_key)})
                 return self._cache[cache_key]
 
-            logger.info(f"Запрашиваем расписание: {url} с параметрами {params}")
+            railway_logger.monitoring_action(f"Запрашиваем расписание: {url}", data={"params": params})
 
             async with self.session.get(url, params=params) as response:
                 if response.status == 200:
@@ -65,10 +66,10 @@ class FinalMarshrutochkaParser:
 
                     return None
                 else:
-                    logger.error(f"HTTP ошибка: {response.status}")
+                    railway_logger.error(f"HTTP ошибка: {response.status}", extra={"status_code": response.status, "url": url})
                     return None
         except Exception as e:
-            logger.error(f"Ошибка при запросе HTML расписания: {e}")
+            railway_logger.error(f"Ошибка при запросе HTML расписания: {e}", exc_info=True, extra={"url": url if 'url' in locals() else None})
             return None
     
     def parse_html_schedule(self, html_content: str, from_city: str, to_city: str, date: str) -> List[Dict]:
@@ -80,26 +81,26 @@ class FinalMarshrutochkaParser:
             
             # Ищем все блоки маршрутов
             route_blocks = soup.find_all('div', class_='nf-route')
-            logger.info(f"Найдено блоков маршрутов: {len(route_blocks)}")
+            railway_logger.info(f"Найдено блоков маршрутов: {len(route_blocks)}", extra={"count": len(route_blocks)})
             
             for i, route_block in enumerate(route_blocks):
                 try:
                     route_info = self.extract_route_from_block(route_block, from_city, to_city, date)
                     if route_info:
                         routes.append(route_info)
-                        logger.info(
-                            f"Маршрут {i+1}: {route_info['departure_time']} -> {route_info['arrival_time']}, "
-                            f"свободно мест: {route_info.get('available_seats')}, "
-                            f"перевозчик: {route_info.get('carrier')}"
+                        railway_logger.info(
+                            f"Маршрут {i+1}: {route_info['departure_time']} -> {route_info['arrival_time']}",
+                            extra={
+                                "available_seats": route_info.get('available_seats'),
+                                "carrier": route_info.get('carrier')
+                            }
                         )
                 except Exception as e:
-                    logger.error(f"Ошибка при обработке маршрута {i+1}: {e}")
+                    railway_logger.error(f"Ошибка при обработке маршрута {i+1}: {e}", exc_info=True)
                     continue
             
         except Exception as e:
-            logger.error(f"Ошибка при парсинге HTML: {e}")
-            import traceback
-            traceback.print_exc()
+            railway_logger.error(f"Ошибка при парсинге HTML: {e}", exc_info=True)
         
         return routes
     
@@ -223,7 +224,7 @@ class FinalMarshrutochkaParser:
                 return route_info
             
         except Exception as e:
-            logger.error(f"Ошибка при извлечении данных маршрута: {e}")
+            railway_logger.error(f"Ошибка при извлечении данных маршрута: {e}", exc_info=True)
         
         return None
     
@@ -239,7 +240,7 @@ class FinalMarshrutochkaParser:
         to_city_id = city_mapping.get(to_city)
         
         if not from_city_id or not to_city_id:
-            logger.warning(f"Неизвестные города: {from_city} или {to_city}")
+            railway_logger.warning(f"Неизвестные города: {from_city} или {to_city}")
             return []
         
         # Получаем HTML
@@ -262,10 +263,10 @@ class FinalMarshrutochkaParser:
             
             # Передаем реальные данные в генератор статического расписания
             static_routes = generate_static_minsk_smorgon_ostrovets_schedule(date, real_routes)
-            logger.info(f"Сгенерировано {len(static_routes)} статических маршрутов Минск-Островец через Сморгонь с учетом реальных данных")
+            railway_logger.info(f"Сгенерировано {len(static_routes)} статических маршрутов Минск-Островец через Сморгонь с учетом реальных данных")
             return static_routes
         except Exception as e:
-            logger.error(f"Ошибка генерации статического расписания: {e}")
+            railway_logger.error(f"Ошибка генерации статического расписания: {e}", exc_info=True)
             # Fallback на обычный парсинг
             return await self.search_routes("Минск", "Островец", date)
     
@@ -424,13 +425,13 @@ class FinalMarshrutochkaParser:
                         smorgon_route['calculated_minsk_smorgon_minutes'] = minsk_smorgon_time
                         
                     except Exception as e:
-                        logger.error(f"Ошибка при расчете времени для маршрута Сморгонь-Островец: {e}")
+                        railway_logger.error(f"Ошибка при расчете времени для маршрута Сморгонь-Островец: {e}", exc_info=True)
                         # Fallback к стандартному времени
                         smorgon_route['duration'] = "~1 ч 5 мин"
                 
                 smorgon_routes.append(smorgon_route)
         
-        logger.info(f"Создано {len(smorgon_routes)} маршрутов Сморгонь-Островец с динамически рассчитанным временем")
+        railway_logger.info(f"Создано {len(smorgon_routes)} маршрутов Сморгонь-Островец с динамически рассчитанным временем")
         return smorgon_routes
     
     async def get_all_routes(self, date: str) -> Dict[str, List[Dict]]:
@@ -449,23 +450,23 @@ class FinalMarshrutochkaParser:
         
         try:
             # Получаем основные маршруты
-            logger.info("Поиск маршрутов Минск-Островец...")
+            railway_logger.info("Поиск маршрутов Минск-Островец...")
             result['minsk_to_ostrovets'] = await self.get_routes_minsk_ostrovets(date)
 
-            logger.info("Поиск маршрутов Островец-Минск...")
+            railway_logger.info("Поиск маршрутов Островец-Минск...")
             result['ostrovets_to_minsk'] = await self.get_routes_ostrovets_minsk(date)
             
             # Получаем маршруты через Сморгонь
-            logger.info("Поиск маршрутов Минск-Сморгонь...")
+            railway_logger.info("Поиск маршрутов Минск-Сморгонь...")
             result['minsk_to_smorgon'] = await self.get_routes_minsk_smorgon(date)
             
-            logger.info("Поиск маршрутов Сморгонь-Минск...")
+            railway_logger.info("Поиск маршрутов Сморгонь-Минск...")
             result['smorgon_to_minsk'] = await self.get_routes_smorgon_minsk(date)
             
-            logger.info("Поиск маршрутов Островец-Сморгонь...")
+            railway_logger.info("Поиск маршрутов Островец-Сморгонь...")
             result['ostrovets_to_smorgon'] = await self.get_routes_ostrovets_smorgon(date)
             
-            logger.info("Поиск маршрутов Сморгонь-Островец...")
+            railway_logger.info("Поиск маршрутов Сморгонь-Островец...")
             result['smorgon_to_ostrovets'] = await self.get_routes_smorgon_ostrovets(date)
             
             # Подсчитываем общее количество найденных маршрутов
@@ -477,7 +478,7 @@ class FinalMarshrutochkaParser:
                 result['total_routes'] = total_routes
             
         except Exception as e:
-            logger.error(f"Ошибка при получении всех маршрутов: {e}")
+            railway_logger.error(f"Ошибка при получении всех маршрутов: {e}", exc_info=True)
             result['error'] = str(e)
         
         return result
@@ -493,41 +494,41 @@ async def main():
         routes = await parser.get_all_routes(tomorrow)
         
         # Выводим результаты
-        logger.info("\n" + "="*70)
-        logger.info("РЕЗУЛЬТАТЫ ПАРСИНГА МАРШРУТОВ")
-        logger.info("="*70)
-        logger.info(f"Дата поиска: {tomorrow}")
-        logger.info(f"Время поиска: {routes['search_time']}")
-        logger.info(f"Статус: {'Успешно' if routes['success'] else 'Ошибка'}")
+        railway_logger.info("\n" + "="*70)
+        railway_logger.info("РЕЗУЛЬТАТЫ ПАРСИНГА МАРШРУТОВ")
+        railway_logger.info("="*70)
+        railway_logger.info(f"Дата поиска: {tomorrow}")
+        railway_logger.info(f"Время поиска: {routes['search_time']}")
+        railway_logger.info(f"Статус: {'Успешно' if routes['success'] else 'Ошибка'}")
         
-        logger.info(f"\nМаршруты Минск-Островец: {len(routes['minsk_to_ostrovets'])}")
+        railway_logger.info(f"\nМаршруты Минск-Островец: {len(routes['minsk_to_ostrovets'])}")
         for i, route in enumerate(routes['minsk_to_ostrovets'], 1):
-            logger.info(f"  {i}. {route['departure_time']} → {route['arrival_time']}")
-            logger.info(f"     Длительность: {route.get('duration', 'н/д')}")
-            logger.info(f"     Свободных мест: {route.get('available_seats', 'н/д')}")
-            logger.info(f"     Перевозчик: {route.get('carrier', 'н/д')}")
-            logger.info(f"     Цена: {route.get('price_str', 'н/д')}")
-            logger.info("")
+            railway_logger.info(f"  {i}. {route['departure_time']} → {route['arrival_time']}")
+            railway_logger.info(f"     Длительность: {route.get('duration', 'н/д')}")
+            railway_logger.info(f"     Свободных мест: {route.get('available_seats', 'н/д')}")
+            railway_logger.info(f"     Перевозчик: {route.get('carrier', 'н/д')}")
+            railway_logger.info(f"     Цена: {route.get('price_str', 'н/д')}")
+            railway_logger.info("")
         
-        logger.info(f"\nМаршруты Островец-Минск: {len(routes['ostrovets_to_minsk'])}")
+        railway_logger.info(f"\nМаршруты Островец-Минск: {len(routes['ostrovets_to_minsk'])}")
         for i, route in enumerate(routes['ostrovets_to_minsk'], 1):
-            logger.info(f"  {i}. {route['departure_time']} → {route['arrival_time']}")
-            logger.info(f"     Длительность: {route.get('duration', 'н/д')}")
-            logger.info(f"     Свободных мест: {route.get('available_seats', 'н/д')}")
-            logger.info(f"     Перевозчик: {route.get('carrier', 'н/д')}")
-            logger.info(f"     Цена: {route.get('price_str', 'н/д')}")
-            logger.info("")
+            railway_logger.info(f"  {i}. {route['departure_time']} → {route['arrival_time']}")
+            railway_logger.info(f"     Длительность: {route.get('duration', 'н/д')}")
+            railway_logger.info(f"     Свободных мест: {route.get('available_seats', 'н/д')}")
+            railway_logger.info(f"     Перевозчик: {route.get('carrier', 'н/д')}")
+            railway_logger.info(f"     Цена: {route.get('price_str', 'н/д')}")
+            railway_logger.info("")
         
         # Сохраняем результаты в файл
         filename = f'final_routes_{tomorrow}.json'
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(routes, f, ensure_ascii=False, indent=2)
         
-        logger.info(f"Результаты сохранены в файл {filename}")
+        railway_logger.info(f"Результаты сохранены в файл {filename}")
         
         # Краткая статистика
         total_routes = len(routes['minsk_to_ostrovets']) + len(routes['ostrovets_to_minsk'])
-        logger.info(f"\nВсего найдено маршрутов: {total_routes}")
+        railway_logger.info(f"\nВсего найдено маршрутов: {total_routes}")
 
 
 if __name__ == "__main__":

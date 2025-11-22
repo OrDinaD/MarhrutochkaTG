@@ -14,7 +14,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime, timedelta
-import requests
+import aiohttp
 import telegram
 
 class AutoRecoverySystem:
@@ -195,19 +195,22 @@ class AutoRecoverySystem:
             ]
             
             connectivity_results = {}
-            for url in critical_urls:
-                try:
-                    response = requests.get(url, timeout=10)
-                    connectivity_results[url] = {
-                        "accessible": True,
-                        "status_code": response.status_code,
-                        "response_time": response.elapsed.total_seconds()
-                    }
-                except Exception as e:
-                    connectivity_results[url] = {
-                        "accessible": False,
-                        "error": str(e)
-                    }
+            async with aiohttp.ClientSession() as session:
+                for url in critical_urls:
+                    try:
+                        start_time = time.time()
+                        async with session.get(url, timeout=10) as response:
+                            elapsed = time.time() - start_time
+                            connectivity_results[url] = {
+                                "accessible": True,
+                                "status_code": response.status,
+                                "response_time": elapsed
+                            }
+                    except Exception as e:
+                        connectivity_results[url] = {
+                            "accessible": False,
+                            "error": str(e)
+                        }
             
             actions.append(f"Connectivity check completed: {connectivity_results}")
             

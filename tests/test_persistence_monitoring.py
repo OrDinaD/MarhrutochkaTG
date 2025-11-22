@@ -1,10 +1,13 @@
-#!/usr/bin/env python3
-import importlib
-import os
-from types import SimpleNamespace
-
 import pytest
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+import importlib
 
+# Add project root to sys.path
+sys.path.append(str(Path(__file__).parents[1]))
 
 @pytest.mark.asyncio
 async def test_file_storage_persists_between_manager_restarts(tmp_path, monkeypatch):
@@ -12,32 +15,63 @@ async def test_file_storage_persists_between_manager_restarts(tmp_path, monkeypa
     storage_file = tmp_path / "monitors.json"
     monkeypatch.setenv("MONITORING_STORAGE", "file")
     monkeypatch.setenv("MONITORS_FILE_PATH", str(storage_file))
+    
+    # Create initial empty file
+    with open(storage_file, 'w') as f:
+        json.dump({}, f)
 
     # Импортируем менеджер и storage фабрику
-    user_manager_mod = importlib.import_module("src.managers.user_manager")
-    storage_pkg = importlib.import_module("src.storage")
-
-    # Привязываем storage и создаем мониторинг
-    storage = storage_pkg.create_storage_from_env()
-    user_manager_mod.user_manager.set_storage(storage)
-
-    user_id = 777
-    monitor = {
-        "date": "2025-01-02",
-        "direction": "minsk_ostrovets",
-        "time_type": "departure",
-        "time_range": "08:00-10:00",
-        "chat_id": 12345,
+    # We need to reload modules to pick up env vars if they were already imported
+    if 'src.managers.user_manager' in sys.modules:
+        del sys.modules['src.managers.user_manager']
+    if 'src.storage.monitoring_storage' in sys.modules:
+        del sys.modules['src.storage.monitoring_storage']
+    if 'src.storage' in sys.modules:
+        del sys.modules['src.storage']
+        
+    import src.managers.user_manager as user_manager_mod
+    import src.storage as storage_mod
+    
+    # 1. Create manager and storage
+    manager1 = user_manager_mod.UserManager()
+    storage1 = storage_mod.create_storage_from_env()
+    manager1.set_storage(storage1)
+    
+    # Add monitor using the correct method
+    user_id = 12345
+    monitor_data = {
+        "route_code": "AB123",
+        "created_at": "2023-01-01",
+        "is_active": True
     }
-    user_manager_mod.user_manager.set_user_monitor(user_id, monitor)
+    
+    manager1.set_user_monitor(user_id, monitor_data)
+    
+    # 2. Destroy manager1 (simulate restart)
+    # Since saving might be async or sync, verify it's saved
+    # The implementation of set_user_monitor calls storage.save_monitor
+    
+    del manager1
+    
+    # 3. Create manager2
+    # Re-import to simulate fresh start
+    if 'src.managers.user_manager' in sys.modules:
+        del sys.modules['src.managers.user_manager']
+    if 'src.storage' in sys.modules:
+        del sys.modules['src.storage']
 
-    # Проверяем, что файл создан и содержит запись
-    assert storage_file.exists()
-
-    # Симулируем "перезапуск" менеджера — создаем новый объект и загружаем из storage
-    fresh_manager = user_manager_mod.UserManager()
-    fresh_manager.set_storage(storage)
-    loaded = fresh_manager.load_monitors_from_storage()
-    assert loaded == 1
-    assert user_id in fresh_manager.active_monitors
-    assert fresh_manager.active_monitors[user_id]["time_range"] == "08:00-10:00"
+    import src.managers.user_manager as user_manager_mod2
+    import src.storage as storage_mod2
+        
+    manager2 = user_manager_mod2.UserManager()
+    storage2 = storage_mod2.create_storage_from_env()
+    manager2.set_storage(storage2)
+    
+    # Load from storage
+    loaded_count = manager2.load_monitors_from_storage()
+    
+    # 4. Verify monitor exists
+    assert loaded_count == 1
+    monitor = manager2.get_user_monitor(user_id)
+    assert monitor is not None
+    assert monitor["route_code"] == "AB123"

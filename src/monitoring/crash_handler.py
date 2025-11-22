@@ -12,7 +12,8 @@ import traceback
 import platform
 import subprocess
 import psutil
-import requests
+import aiohttp
+import requests  # Keep requests for sync crash handling if needed, but prefer aiohttp for async
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -345,16 +346,17 @@ class CrashHandler:
                 }
             }
             
-            response = requests.post(
-                'https://api.github.com/gists',
-                headers=headers,
-                json=gist_data,
-                timeout=10
-            )
-            
-            if response.status_code == 201:
-                gist_url = response.json().get('html_url')
-                return gist_url
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    'https://api.github.com/gists',
+                    headers=headers,
+                    json=gist_data,
+                    timeout=10
+                ) as response:
+                    if response.status == 201:
+                        data = await response.json()
+                        gist_url = data.get('html_url')
+                        return gist_url
             
         except Exception as e:
             print(f"Failed to upload to GitHub Gist: {e}")
