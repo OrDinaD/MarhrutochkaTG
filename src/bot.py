@@ -513,8 +513,7 @@ async def my_monitors(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [
             [InlineKeyboardButton("🛑 Остановить", callback_data="stop_monitoring")],
-            [InlineKeyboardButton("🔧 Изменить", callback_data="setup_monitoring")],
-            [InlineKeyboardButton("📱 Проверить сейчас", callback_data="check_now")]
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
         ]
         
         message_text = (
