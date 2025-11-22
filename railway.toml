@@ -1,22 +1,21 @@
+# Railway конфигурация для Telegram Bot
+# Документация: https://docs.railway.app/reference/config-as-code
+
 [build]
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "python test_railway.py && python main.py"
+# Команда запуска перенесена в nixpacks.toml для лучшей организации
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 
-# Указываем что это worker, а не web service - отключаем HTTP healthcheck
+# Это worker процесс (не web сервис) - отключаем HTTP healthcheck
 [deploy.healthcheck]
 enabled = false
 
-# Переменные окружения по умолчанию (могут быть переопределены в Railway dashboard)
+# Переменные окружения (могут быть переопределены в Railway Dashboard)
 [env]
 PYTHONUNBUFFERED = "1"
 MONITORING_ENABLED = "true"
 MONITORING_INTERVAL_MINUTES = "5"
 MONITORING_STORAGE = "redis"
-
-# Важно: это worker процесс, не web сервис - без порта
-[service]
-type = "worker"
