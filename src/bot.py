@@ -1752,6 +1752,10 @@ async def perform_route_search(query, user_id: int, from_city: str, to_city: str
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /help"""
+    user_id = update.effective_user.id
+    admin_id = os.getenv('ADMIN_TELEGRAM_ID')
+    is_admin = admin_id and str(user_id) == admin_id
+    
     keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]]
     
     help_text = """❓ **Справка по использованию**
@@ -1768,14 +1772,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📊 **Команды:**
 • `/start` - главное меню
 • `/monitoring` - управление мониторингом
-• `/profile` - ваш профиль
-• `/help` - справка по использованию
 • `/help` - эта справка
+• `/status` - статус системы"""
+    
+    if is_admin:
+        help_text += """
 
-🛠 **Система диагностики (админ):**
-• `/status` - статус системы мониторинга крашей
+👨‍💻 **Команды администратора:**
+• `/reload` - перезагрузка бота на Railway
 • `/recovery_history` - история восстановлений
 • `/system_health` - проверка здоровья системы
+• `/reset` - экстренный сброс"""
+    
+    help_text += """
 
 🚌 **Направления:**
 • Минск → Островец
