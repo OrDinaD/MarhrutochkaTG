@@ -16,6 +16,7 @@ from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime, timedelta
 import aiohttp
 import telegram
+from .railway_logger_enhanced import railway_logger
 
 class AutoRecoverySystem:
     """Система автоматического восстановления"""
@@ -53,6 +54,7 @@ class AutoRecoverySystem:
         
         # Проверяем cooldown
         if not self._can_attempt_recovery():
+            railway_logger.warning("Recovery cooldown active", extra={"cooldown_remaining": self._get_cooldown_remaining()})
             return {
                 "attempted": False,
                 "reason": "Recovery cooldown active",
@@ -77,6 +79,7 @@ class AutoRecoverySystem:
             # Выполняем действия по восстановлению
             for action_name in recovery_strategy:
                 if action_name in self.recovery_actions:
+                    railway_logger.system_action(f"Executing recovery action: {action_name}", data={"crash_id": crash_analysis.get('crash_id')})
                     action_result = await self.recovery_actions[action_name](crash_analysis)
                     recovery_result["actions_taken"].append({
                         "action": action_name,
@@ -85,6 +88,7 @@ class AutoRecoverySystem:
                     })
                     
                     if not action_result.get("success", False):
+                        railway_logger.error(f"Recovery action {action_name} failed", extra={"result": action_result})
                         break
             
             # Проверяем успешность восстановления
@@ -98,10 +102,18 @@ class AutoRecoverySystem:
             
             await self._notify_recovery_complete(recovery_result)
             
+            railway_logger.recovery_event(
+                "Auto recovery attempt finished",
+                recovery_id=f"rec_{int(time.time())}",
+                success=recovery_result["success"],
+                data={"crash_id": crash_analysis.get('crash_id'), "actions": len(recovery_result["actions_taken"])}
+            )
+            
         except Exception as e:
             recovery_result["error"] = str(e)
             recovery_result["success"] = False
             await self._notify_recovery_error(recovery_result, e)
+            railway_logger.error(f"Auto recovery failed: {e}", exc_info=True)
         
         # Сохраняем результат
         self.recovery_log.append(recovery_result)
@@ -619,7 +631,7 @@ class AutoRecoverySystem:
             )
             
         except Exception as e:
-            print(f"Failed to send recovery start notification: {e}")
+            railway_logger.error(f"Failed to send recovery start notification: {e}", exc_info=True)
     
     async def _notify_recovery_complete(self, recovery_result: Dict[str, Any]):
         """Уведомление о завершении восстановления"""
@@ -659,7 +671,7 @@ class AutoRecoverySystem:
             )
             
         except Exception as e:
-            print(f"Failed to send recovery complete notification: {e}")
+            railway_logger.error(f"Failed to send recovery complete notification: {e}", exc_info=True)
     
     async def _notify_recovery_error(self, recovery_result: Dict[str, Any], error: Exception):
         """Уведомление об ошибке восстановления"""
@@ -688,7 +700,7 @@ class AutoRecoverySystem:
             )
             
         except Exception as e:
-            print(f"Failed to send recovery error notification: {e}")
+            railway_logger.error(f"Failed to send recovery error notification: {e}", exc_info=True)
     
     def _save_recovery_log(self):
         """Сохраняет лог восстановления"""
@@ -697,7 +709,7 @@ class AutoRecoverySystem:
             with open(log_file, 'w', encoding='utf-8') as f:
                 json.dump(self.recovery_log, f, indent=2, ensure_ascii=False, default=str)
         except Exception as e:
-            print(f"Failed to save recovery log: {e}")
+            railway_logger.error(f"Failed to save recovery log: {e}", exc_info=True)
     
     def get_recovery_history(self, days: int = 7) -> List[Dict[str, Any]]:
         """Возвращает историю восстановлений за последние дни"""

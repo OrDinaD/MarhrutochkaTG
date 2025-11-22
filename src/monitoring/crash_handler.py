@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import asyncio
 import telegram
+from .railway_logger_enhanced import railway_logger
 
 class CrashHandler:
     """Обработчик крашей с автоматической диагностикой"""
@@ -323,7 +324,7 @@ class CrashHandler:
                 )
             
         except Exception as e:
-            print(f"Failed to send crash notification: {e}")
+            railway_logger.error(f"Failed to send crash notification: {e}", exc_info=True)
     
     async def upload_to_github_gist(self, crash_report: Dict[str, Any]) -> Optional[str]:
         """Загружает отчет в GitHub Gist для удаленного доступа"""
@@ -359,7 +360,7 @@ class CrashHandler:
                         return gist_url
             
         except Exception as e:
-            print(f"Failed to upload to GitHub Gist: {e}")
+            railway_logger.error(f"Failed to upload to GitHub Gist: {e}", exc_info=True)
         
         return None
     
@@ -383,15 +384,16 @@ class CrashHandler:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(crash_data, f, indent=2, ensure_ascii=False, default=str)
             
-            print(f"💾 Crash report saved: {filepath}")
+            railway_logger.info(f"💾 Crash report saved: {filepath}", extra={"filepath": str(filepath)})
             
         except Exception as e:
-            print(f"❌ Failed to save crash report: {e}")
+            railway_logger.error(f"❌ Failed to save crash report: {e}", exc_info=True)
 
     def handle_crash(self, exception: Exception, tb_str=None):
         """Синхронный обработчик крашей"""
         try:
-            print(f"🔥 CRASH DETECTED: {type(exception).__name__}: {exception}")
+            crash_id = self._generate_crash_id()
+            railway_logger.crash_event(f"CRASH DETECTED: {type(exception).__name__}: {exception}", crash_id, data={"exception": str(exception)})
             
             # Если tb_str не передан или это dict, получаем traceback
             if tb_str is None or isinstance(tb_str, dict):
@@ -399,10 +401,11 @@ class CrashHandler:
             
             # Генерируем отчет о краше
             crash_report = self.generate_crash_report(exception, tb_str)
+            crash_report['crash_id'] = crash_id
             
             # Сохраняем локально
             crash_file = self.save_crash_report(crash_report)
-            print(f"💾 Crash report saved: {crash_file}")
+            railway_logger.info(f"💾 Crash report saved: {crash_file}", extra={"filepath": str(crash_file)})
             
             # Отправляем уведомление асинхронно
             try:
@@ -412,10 +415,10 @@ class CrashHandler:
                 loop.run_until_complete(self._async_crash_handling(crash_report, crash_file))
                 loop.close()
             except Exception as e:
-                print(f"⚠️ Failed to send crash notification: {e}")
+                railway_logger.error(f"⚠️ Failed to send crash notification: {e}", exc_info=True)
             
         except Exception as e:
-            print(f"❌ Error in crash handler: {e}")
+            railway_logger.error(f"❌ Error in crash handler: {e}", exc_info=True)
             traceback.print_exc()
     
     def setup_crash_handling(self):
@@ -442,7 +445,7 @@ class CrashHandler:
         sys.excepthook = custom_excepthook
         
         # Логируем активацию
-        print("🛡️ Crash handler activated")
+        railway_logger.system_action("🛡️ Crash handler activated")
     
     async def handle_exception(self, exception: Exception, test_context: str = None):
         """Обрабатывает исключение и создает crash report"""
@@ -505,7 +508,7 @@ if __name__ == "__main__":
         # Загружаем в GitHub Gist
         gist_url = await self.upload_to_github_gist(crash_report)
         if gist_url:
-            print(f"🔗 Gist URL: {gist_url}")
+            railway_logger.info(f"🔗 Gist URL: {gist_url}", extra={"url": gist_url})
 
 # Глобальный экземпляр
 crash_handler = CrashHandler()

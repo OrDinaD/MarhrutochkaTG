@@ -13,6 +13,7 @@ import traceback
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
+from .railway_logger_enhanced import railway_logger
 
 class DiagnosticSystem:
     """Система автоматической диагностики проблем"""
@@ -181,7 +182,7 @@ class DiagnosticSystem:
             return await self.analyze_crash_report(crash_report)
             
         except Exception as e:
-            print(f"Failed to analyze exception: {e}")
+            railway_logger.error(f"Failed to analyze exception: {e}", exc_info=True)
             return None
 
     async def analyze_crash_report(self, crash_report: Dict[str, Any]) -> Dict[str, Any]:

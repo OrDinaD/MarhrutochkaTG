@@ -30,7 +30,8 @@ try:
     logs_dir = Path('data/logs')
     logs_dir.mkdir(parents=True, exist_ok=True)
     
-    railway_logger = RailwayLoggerEnhanced().logger
+    # Export the wrapper instance, NOT .logger
+    railway_logger = RailwayLoggerEnhanced()
 except Exception as e:
     import logging
     logging.warning(f"Failed to initialize RailwayLoggerEnhanced: {e}")
