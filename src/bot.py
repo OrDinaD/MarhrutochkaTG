@@ -11,6 +11,7 @@ import json
 import sys
 import re
 import traceback
+import httpx
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from pathlib import Path
@@ -467,6 +468,121 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         text,
         reply_markup=get_main_menu_keyboard(update.effective_user.id),
+        parse_mode='Markdown'
+    )
+
+async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /reload - Перезагрузка бота на Railway"""
+    user_id = update.effective_user.id
+    
+    # Проверяем права администратора
+    admin_id = os.getenv('ADMIN_TELEGRAM_ID')
+    if not admin_id or str(user_id) != admin_id:
+        await update.message.reply_text(
+            "❌ У вас нет прав для выполнения этой команды.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Получаем переменные Railway
+    railway_token = os.getenv('RAILWAY_TOKEN')
+    railway_service_id = os.getenv('RAILWAY_SERVICE_ID')
+    
+    if not railway_token or not railway_service_id:
+        await update.message.reply_text(
+            "❌ **Ошибка конфигурации**\n\n"
+            "Не найдены переменные окружения:\n"
+            f"• RAILWAY_TOKEN: {'✅' if railway_token else '❌'}\n"
+            f"• RAILWAY_SERVICE_ID: {'✅' if railway_service_id else '❌'}\n\n"
+            "💡 Добавьте их в настройках Railway.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Отправляем уведомление о начале перезагрузки
+    status_msg = await update.message.reply_text(
+        "🔄 **Перезагрузка бота...**\n\n"
+        "⏳ Отправка запроса на Railway API...",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        # Railway GraphQL API endpoint
+        url = "https://backboard.railway.app/graphql/v2"
+        
+        # GraphQL mutation для перезапуска сервиса
+        query = """
+        mutation serviceInstanceRedeploy($serviceId: String!) {
+            serviceInstanceRedeploy(serviceId: $serviceId)
+        }
+        """
+        
+        headers = {
+            "Authorization": f"Bearer {railway_token}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "query": query,
+            "variables": {
+                "serviceId": railway_service_id
+            }
+        }
+        
+        # Отправляем запрос
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                if "errors" in result:
+                    error_msg = result["errors"][0].get("message", "Unknown error")
+                    await status_msg.edit_text(
+                        f"❌ **Ошибка Railway API**\n\n"
+                        f"```\n{error_msg}\n```",
+                        parse_mode='Markdown'
+                    )
+                    safe_log_admin("Ошибка перезагрузки Railway", {"error": error_msg}, level="error")
+                else:
+                    await status_msg.edit_text(
+                        "✅ **Перезагрузка запущена**\n\n"
+                        "🔄 Бот будет перезапущен через несколько секунд.\n"
+                        "⏰ Обычно это занимает 30-60 секунд.\n\n"
+                        "💡 Используйте /status чтобы проверить состояние.",
+                        parse_mode='Markdown'
+                    )
+                    safe_log_admin("Перезагрузка бота на Railway инициирована", {
+                        "user_id": user_id,
+                        "service_id": railway_service_id
+                    })
+            else:
+                await status_msg.edit_text(
+                    f"❌ **Ошибка HTTP {response.status_code}**\n\n"
+                    f"```\n{response.text[:500]}\n```",
+                    parse_mode='Markdown'
+                )
+                safe_log_admin("Ошибка HTTP при перезагрузке Railway", {
+                    "status_code": response.status_code,
+                    "response": response.text[:500]
+                }, level="error")
+                
+    except httpx.TimeoutException:
+        await status_msg.edit_text(
+            "⏱️ **Таймаут запроса**\n\n"
+            "Не удалось связаться с Railway API.\n"
+            "Попробуйте позже.",
+            parse_mode='Markdown'
+        )
+        safe_log_admin("Таймаут при перезагрузке Railway", level="error")
+    except Exception as e:
+        await status_msg.edit_text(
+            f"❌ **Неожиданная ошибка**\n\n"
+            f"```\n{str(e)[:500]}\n```",
+            parse_mode='Markdown'
+        )
+        safe_log_admin("Исключение при перезагрузке Railway", {"error": str(e)}, level="error")
+
         parse_mode='Markdown'
     )
 
@@ -2940,6 +3056,7 @@ def register_handlers(application):
     application.add_handler(CommandHandler("recovery_history", recovery_history_command))
     application.add_handler(CommandHandler("system_health", system_health_command))
     application.add_handler(CommandHandler("reset", emergency_reset_command))  # Экстренный сброс
+    application.add_handler(CommandHandler("reload", reload_command))  # Перезагрузка бота на Railway
     
     # Добавляем ConversationHandlers
     application.add_handler(monitoring_conv_handler)
