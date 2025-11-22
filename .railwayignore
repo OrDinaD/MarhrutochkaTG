@@ -1,0 +1,51 @@
+# Development files
+.env
+.venv/
+venv/
+env/
+.python-version
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data
+data/logs/
+data/temp/
+temp_recovery/
+crash_logs/
+backups/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Scripts
+scripts/
+
+# Tests
+tests/
+pytest.ini
+
+# Mac
+.DS_Store
