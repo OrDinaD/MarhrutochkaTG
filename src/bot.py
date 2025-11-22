@@ -583,9 +583,6 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         safe_log_admin("Исключение при перезагрузке Railway", {"error": str(e)}, level="error")
 
-        parse_mode='Markdown'
-    )
-
 @callback_handler_protection(timeout=30)
 async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик главного меню - универсальный для всех conversation"""
