@@ -55,6 +55,7 @@ temp/
 !README.md
 !docs/RAILWAY_LOGGING.md
 !docs/RAILWAY_DEPLOY.md
+!docs/RAILWAY_RELOAD.md
 !docs/USER_GUIDE.md
 !docs/DEPLOYMENT.md
 !docs/TESTING_GUIDE.md
