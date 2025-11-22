@@ -750,6 +750,8 @@ async def handle_monitoring_direction_choice(update: Update, context: ContextTyp
     if data.startswith("dir_"):
         direction = data.replace("dir_", "")
         user_data_store[user_id]['direction'] = direction
+        # По умолчанию устанавливаем время отправления
+        user_data_store[user_id]['time_type'] = 'departure'
         
         direction_text = {
             "minsk_ostrovets": "Минск → Островец",
@@ -760,12 +762,13 @@ async def handle_monitoring_direction_choice(update: Update, context: ContextTyp
         await safe_edit_message(
                 query,
             f"✅ **Направление:** {direction_text}\n\n"
-            "⏰ **Шаг 3:** Что важнее для вас?",
-            reply_markup=get_time_type_keyboard(),
+            "🕐 **Шаг 2:** Выберите время отправления:\n\n"
+            "💡 Вы можете выбрать время из списка или написать свой диапазон в формате ЧЧ:ММ-ЧЧ:ММ (например, 07:00-09:00)",
+            reply_markup=get_time_range_keyboard('departure'),
             parse_mode='Markdown'
         )
         
-        return CHOOSE_TIME_TYPE
+        return CHOOSE_TIME_RANGE
         
     elif data == "back_to_date":
         # Возвращаемся к выбору даты
@@ -782,12 +785,19 @@ async def handle_monitoring_direction_choice(update: Update, context: ContextTyp
 
 @callback_handler_protection(timeout=20)
 async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора типа времени"""
+    """Обработка выбора типа времени - УБРАНО, теперь по умолчанию используется время отправления"""
+    # Этот обработчик больше не используется, так как шаг выбора типа времени убран
+    # По умолчанию всегда используется время отправления (departure)
+    # Обработчик оставлен для обратной совместимости, но не должен вызываться
     query = update.callback_query
     await safe_answer_callback(query)
     
     user_id = query.from_user.id
     data = query.data
+    
+    # Обработчик больше не нужен, так как шаг выбора типа времени удален
+    # По умолчанию используется время отправления
+    return CHOOSE_TIME_TYPE
     
     if data.startswith("time_"):
         time_type = data.replace("time_", "")
@@ -857,64 +867,53 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
     user_id = query.from_user.id
     data = query.data
     
-    if data == "back_to_range_list":
-        # Возвращаемся к выбору диапазона из списка
-        time_type = user_data_store[user_id].get('time_type', 'departure')
+    if data == "back_to_time_range" or data == "back_to_range_list":
+        # Возвращаемся к выбору диапазона времени
+        direction_text = {
+            "minsk_ostrovets": "Минск → Островец",
+            "ostrovets_minsk": "Островец → Минск"
+        }.get(user_data_store[user_id].get('direction', ''), "")
+        
         await safe_edit_message(
                 query,
-            "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
-            reply_markup=get_time_range_keyboard(time_type),
+            f"✅ **Направление:** {direction_text}\n\n"
+            "🕐 **Шаг 2:** Выберите время отправления:\n\n"
+            "💡 Вы можете выбрать время из списка или написать свой диапазон в формате ЧЧ:ММ-ЧЧ:ММ (например, 07:00-09:00)",
+            reply_markup=get_time_range_keyboard('departure'),
             parse_mode='Markdown'
         )
         return CHOOSE_TIME_RANGE
     
-    elif data == "back_to_time_range":
-        # Возвращаемся к выбору диапазона времени
-        time_type = user_data_store[user_id].get('time_type', 'departure')
+    elif data == "back_to_direction":
+        # Возвращаемся к выбору направления
         await safe_edit_message(
                 query,
-            "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
-            reply_markup=get_time_range_keyboard(time_type),
+            f"✅ **Дата:** {user_data_store[user_id].get('date', '')}\n\n"
+            "🛣️ **Шаг 2:** Выберите направление:",
+            reply_markup=get_direction_keyboard(),
             parse_mode='Markdown'
         )
-        return CHOOSE_TIME_RANGE
+        return CHOOSE_DIRECTION
     
     elif data.startswith("range_"):
         time_range = data.replace("range_", "")
         
-        if time_range == "custom":
-            await safe_edit_message(
-                query,
-                "🕐 **Введите диапазон времени в формате ЧЧ:ММ-ЧЧ:ММ**\n\n"
-                "Примеры:\n"
-                "• `07:00-09:00` - с 7 до 9 утра\n"
-                "• `17:30-19:30` - с 17:30 до 19:30\n\n"
-                "Или нажмите кнопку ниже:",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔙 Выбрать из списка", callback_data="back_to_range_list")
-                ]]),
-                parse_mode='Markdown'
-            )
-            
-            return CHOOSE_TIME_RANGE
-        else:
-            user_data_store[user_id]['time_range'] = time_range
-            
-            config_text = format_monitor_config(user_data_store[user_id])
-            
-            await safe_edit_message(
-                query,
-                f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
-                "❓ **Запустить мониторинг?**",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Да, запустить!", callback_data="confirm_yes")],
-                    [InlineKeyboardButton("❌ Нет, изменить", callback_data="confirm_no")],
-                    [InlineKeyboardButton("🔙 Диапазон времени", callback_data="back_to_time_range")]
-                ]),
-                parse_mode='Markdown'
-            )
-            
-            return CONFIRM_MONITORING
+        user_data_store[user_id]['time_range'] = time_range
+        
+        config_text = format_monitor_config(user_data_store[user_id])
+        
+        await safe_edit_message(
+            query,
+            f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
+            "❓ **Все верно?**",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Да, все верно!", callback_data="confirm_yes")],
+                [InlineKeyboardButton("🔙 Изменить время", callback_data="back_to_time_range")]
+            ]),
+            parse_mode='Markdown'
+        )
+        
+        return CONFIRM_MONITORING
 async def _ensure_monitoring_session(user_id: int, query, context: ContextTypes.DEFAULT_TYPE):
     """Проверяет, что данные для запуска мониторинга корректны."""
     session = user_data_store.get(user_id)
@@ -1012,12 +1011,17 @@ async def _show_adjust_menu(user_id: int, query):
 
 async def _return_to_time_range(user_id: int, query):
     """Возвращает пользователя к выбору диапазона времени."""
-    time_type = user_data_store.get(user_id, {}).get('time_type', 'departure')
+    direction_text = {
+        "minsk_ostrovets": "Минск → Островец",
+        "ostrovets_minsk": "Островец → Минск"
+    }.get(user_data_store.get(user_id, {}).get('direction', ''), "")
     
     await safe_edit_message(
         query,
-        "🕐 **Шаг 4:** Выберите желаемый диапазон времени:",
-        reply_markup=get_time_range_keyboard(time_type),
+        f"✅ **Направление:** {direction_text}\n\n"
+        "🕐 **Шаг 2:** Выберите время отправления:\n\n"
+        "💡 Вы можете выбрать время из списка или написать свой диапазон в формате ЧЧ:ММ-ЧЧ:ММ (например, 07:00-09:00)",
+        reply_markup=get_time_range_keyboard('departure'),
         parse_mode='Markdown'
     )
     return CHOOSE_TIME_RANGE
@@ -1038,9 +1042,6 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
 
         await _store_monitoring_config(user_id, query, context, session)
         return ConversationHandler.END
-
-    elif data == "confirm_no":
-        return await _show_adjust_menu(user_id, query)
 
     elif data in {"back_to_range", "back_to_time_range"}:
         return await _return_to_time_range(user_id, query)
@@ -1089,11 +1090,10 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(
             f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
-            "❓ **Запустить мониторинг?**",
+            "❓ **Все верно?**",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Да, запустить!", callback_data="confirm_yes")],
-                [InlineKeyboardButton("❌ Нет, изменить", callback_data="confirm_no")],
-                [InlineKeyboardButton("🔙 Диапазон времени", callback_data="back_to_time_range")]
+                [InlineKeyboardButton("✅ Да, все верно!", callback_data="confirm_yes")],
+                [InlineKeyboardButton("🔙 Изменить время", callback_data="back_to_time_range")]
             ]),
             parse_mode='Markdown'
         )
@@ -1252,23 +1252,24 @@ async def send_monitoring_notification(
             "both": "в обоих направлениях"
         }.get(config['direction'], config['direction'])
         
-        message_parts = [
-            "🔔 **НАЙДЕНЫ ПОДХОДЯЩИЕ РЕЙСЫ!**",
-            "",
-            f"📅 **Дата:** {config['date']}",
-            f"🛣️ **Направление:** {direction_text}",
-            f"⏰ **Время:** {config['time_range']}",
-            ""
-        ]
+        message_parts = []
         
         for i, route in enumerate(routes[:5], 1):  # Показываем до 5 рейсов
             seats = route.get('available_seats', 0)
             emoji = "🔥" if seats <= 3 else "✅"
             direction = f"{route['from_city']} → {route['to_city']}"
             
+            # Время отправления самой первой строкой
+            if i == 1:
+                message_parts.append(f"🚀 **{route.get('departure_time')} → {route.get('arrival_time')}**")
+                message_parts.append(f"📅 {config['date']}")
+                message_parts.append(f"🛣️ {direction}")
+                message_parts.append("")
+                message_parts.append("🔔 **НАЙДЕНЫ ПОДХОДЯЩИЕ РЕЙСЫ!**")
+                message_parts.append("")
+            
             message_parts.append(f"**{i}. {direction}**")
             message_parts.append(f"🚀 {route.get('departure_time')} → 🎯 {route.get('arrival_time')}")
-            # Убираем "| Евротранспорт-Сервис" из уведомлений
             message_parts.append(f"{emoji} **{seats} мест**")
             message_parts.append("")
         

@@ -67,8 +67,9 @@ class KeyboardFactory:
             [InlineKeyboardButton("🏘️ Островец → Минск", callback_data="dir_ostrovets_minsk")]
         ]
         
-        if include_all:
-            keyboard.append([InlineKeyboardButton("🔄 Оба направления", callback_data="dir_both")])
+        # Убрана кнопка "Оба направления" для мониторинга
+        # if include_all:
+        #     keyboard.append([InlineKeyboardButton("🔄 Оба направления", callback_data="dir_both")])
             
         keyboard.append([InlineKeyboardButton("🔙 Выбрать дату", callback_data="back_to_date")])
         
@@ -93,15 +94,14 @@ class KeyboardFactory:
             ("☀️ Днём (09:00-15:00)", "09:00-15:00"),
             ("🌆 Вечером (15:00-20:00)", "15:00-20:00"),
             ("🌙 Ночью (20:00-05:00)", "20:00-05:00"),
-            ("🕐 Пользовательский диапазон", "custom"),
-            ("⏰ Любое время", "any")
+            ("⏰ Весь день", "any")
         ]
         
         keyboard = []
         for label, value in ranges:
             keyboard.append([InlineKeyboardButton(label, callback_data=f"range_{value}")])
         
-        keyboard.append([InlineKeyboardButton("🔙 Тип времени", callback_data="back_to_time_type")])
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_direction")])
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
