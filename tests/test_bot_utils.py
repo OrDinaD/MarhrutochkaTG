@@ -115,8 +115,22 @@ def test_filter_routes_by_criteria():
     assert len(filtered_routes) == 0
 
 def test_create_webapp_url():
-    assert create_webapp_url("minsk_ostrovets") == "https://билет.маршруточка.бел/"
-    assert create_webapp_url("general", "2025-01-15") == "https://билет.маршруточка.бел/"
+    # Test with direction and date
+    url = create_webapp_url("minsk_ostrovets", "2025-11-25")
+    assert "билет.маршруточка.бел" in url
+    assert "#from=minsk&to=ostrovets&date=2025-11-25" in url
+    
+    # Test with only direction
+    url = create_webapp_url("ostrovets_minsk")
+    assert "#from=ostrovets&to=minsk" in url
+    
+    # Test with general (no params)
+    url = create_webapp_url("general")
+    assert url == "https://билет.маршруточка.бел/"
+    
+    # Test without params
+    url = create_webapp_url()
+    assert url == "https://билет.маршруточка.бел/"
 
 def test_create_webapp_keyboard():
     # Test case 1: Specific direction

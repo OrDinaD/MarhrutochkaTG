@@ -350,60 +350,61 @@ async def init_parser():
 
 def create_webapp_url(direction: str, date: str = None) -> str:
     """Создает URL для веб-приложения маршруточки с предвыбранным направлением"""
-    # Используем главную страницу сайта вместо API endpoint
     base_url = "https://билет.маршруточка.бел/"
     
-    # Возвращаем просто главную страницу - пользователь сам выберет направление и дату
-    # Это проще и надежнее чем пытаться угадать API параметры
+    # Если есть направление или дата, добавляем их как hash-параметры
+    # Сайт может их прочитать через window.location.hash в JavaScript
+    params = []
+    
+    if direction and direction not in ["general", "both", "all"]:
+        # Преобразуем направление в формат from-to
+        direction_map = {
+            "minsk_ostrovets": "from=minsk&to=ostrovets",
+            "ostrovets_minsk": "from=ostrovets&to=minsk",
+            "minsk_smorgon": "from=minsk&to=smorgon",
+            "smorgon_minsk": "from=smorgon&to=minsk",
+            "ostrovets_smorgon": "from=ostrovets&to=smorgon",
+            "smorgon_ostrovets": "from=smorgon&to=ostrovets"
+        }
+        
+        if direction in direction_map:
+            params.append(direction_map[direction])
+            
+            # Добавляем дату только если есть направление
+            if date:
+                params.append(f"date={date}")
+    
+    # Формируем URL с параметрами в hash
+    if params:
+        return f"{base_url}#{'&'.join(params)}"
+    
     return base_url
 
 def create_webapp_keyboard(direction: str = None, date: str = None, additional_buttons: list = None) -> InlineKeyboardMarkup:
     """Создает клавиатуру с кнопками веб-приложений"""
     keyboard = []
     
-    if direction:
-        # Создаем кнопку для конкретного направления
-        direction_names = {
-            "minsk_ostrovets": "🏙️ Минск → Островец",
-            "ostrovets_minsk": "🏘️ Островец → Минск",
-            "minsk_smorgon": "🏙️ Минск → Сморгонь",
-            "smorgon_minsk": "🏘️ Сморгонь → Минск",
-            "ostrovets_smorgon": "🏘️ Островец → Сморгонь",
-            "smorgon_ostrovets": "🏘️ Сморгонь → Островец",
-            "both": "🔄 Оба направления",
-            "all": "🔄 Все направления"
-        }
+    # Создаем URL с параметрами
+    webapp_url = create_webapp_url(direction, date)
+    
+    # Выбираем текст кнопки в зависимости от наличия параметров
+    if direction and direction not in ["general", "both", "all"]:
+        button_text = "🌐 Открыть сайт бронирования"
         
-        if direction in ["minsk_ostrovets", "ostrovets_minsk", "minsk_smorgon", "smorgon_minsk", 
-                        "ostrovets_smorgon", "smorgon_ostrovets"]:
-            webapp_url = create_webapp_url(direction, date)
-            web_app = WebAppInfo(url=webapp_url)
+        # Добавляем кнопку с параметрами
+        keyboard.append([
+            InlineKeyboardButton(button_text, web_app=WebAppInfo(url=webapp_url))
+        ])
+        
+        # Добавляем специальную информацию для маршрутов через Сморгонь
+        if "smorgon" in direction:
             keyboard.append([
-                InlineKeyboardButton(
-                    f"🌐 Открыть сайт бронирования", 
-                    web_app=web_app
-                )
-            ])
-            
-            # Добавляем специальную информацию для маршрутов через Сморгонь
-            if "smorgon" in direction:
-                keyboard.append([
-                    InlineKeyboardButton("ℹ️ Информация о Сморгони", callback_data="smorgon_info")
-                ])
-                
-        elif direction in ["both", "all"]:
-            # Добавляем кнопки для множественных направлений
-            webapp_url = create_webapp_url(direction, date)
-            
-            keyboard.extend([
-                [InlineKeyboardButton("🚌 Открыть сайт маршруточки", web_app=WebAppInfo(url=webapp_url))]
+                InlineKeyboardButton("ℹ️ Информация о Сморгони", callback_data="smorgon_info")
             ])
     else:
-        # Создаем кнопку для общего доступа к сайту
-        webapp_url = create_webapp_url("general", date)
-        
-        keyboard.extend([
-            [InlineKeyboardButton("🚌 Открыть сайт маршруточки", web_app=WebAppInfo(url=webapp_url))]
+        # Кнопка для общего доступа к сайту
+        keyboard.append([
+            InlineKeyboardButton("🚌 Открыть сайт маршруточки", web_app=WebAppInfo(url=webapp_url))
         ])
     
     # Добавляем дополнительные кнопки если есть

@@ -8,6 +8,35 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from typing import List, Optional, Dict
 
 
+def create_webapp_url_helper(direction: str = None, date: str = None) -> str:
+    """Создает URL для веб-приложения маршруточки с параметрами"""
+    base_url = "https://билет.маршруточка.бел/"
+    
+    params = []
+    
+    if direction and direction not in ["general", "both", "all"]:
+        direction_map = {
+            "minsk_ostrovets": "from=minsk&to=ostrovets",
+            "ostrovets_minsk": "from=ostrovets&to=minsk",
+            "minsk_smorgon": "from=minsk&to=smorgon",
+            "smorgon_minsk": "from=smorgon&to=minsk",
+            "ostrovets_smorgon": "from=ostrovets&to=smorgon",
+            "smorgon_ostrovets": "from=smorgon&to=ostrovets"
+        }
+        
+        if direction in direction_map:
+            params.append(direction_map[direction])
+            
+            # Добавляем дату только если есть направление
+            if date:
+                params.append(f"date={date}")
+    
+    if params:
+        return f"{base_url}#{'&'.join(params)}"
+    
+    return base_url
+
+
 class KeyboardFactory:
     """Фабрика для создания клавиатур"""
     
@@ -111,14 +140,23 @@ class KeyboardFactory:
         additional_buttons: Optional[List[List[InlineKeyboardButton]]] = None
     ) -> InlineKeyboardMarkup:
         """Создает клавиатуру с кнопками веб-приложений"""
+        from .keyboards import create_webapp_url_helper
+        
         keyboard = []
         
-        # Создаем кнопку для доступа к сайту маршруточки
-        base_url = "https://билет.маршруточка.бел/"
+        # Создаем URL с параметрами
+        url = create_webapp_url_helper(direction, date)
+        
+        # Выбираем текст кнопки в зависимости от наличия параметров
+        if direction and direction not in ["general", "both", "all"]:
+            button_text = "🌐 Открыть сайт бронирования"
+        else:
+            button_text = "🚌 Открыть сайт маршруточки"
+        
         keyboard.append([
             InlineKeyboardButton(
-                "🚌 Открыть сайт маршруточки", 
-                web_app=WebAppInfo(url=base_url)
+                button_text, 
+                web_app=WebAppInfo(url=url)
             )
         ])
         
