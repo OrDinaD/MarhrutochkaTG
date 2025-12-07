@@ -1360,42 +1360,82 @@ async def send_monitoring_notification(
     try:
         bot = context.bot if context else application.bot
         chat_id = config['chat_id']
-        
-        direction_text = {
-            "minsk_ostrovets": "Минск → Островец",
-            "ostrovets_minsk": "Островец → Минск",
-            "both": "в обоих направлениях"
-        }.get(config['direction'], config['direction'])
-        
-        message_parts = []
-        
-        for i, route in enumerate(routes[:5], 1):  # Показываем до 5 рейсов
-            seats = route.get('available_seats', 0)
-            emoji = "🔥" if seats <= 3 else "✅"
-            direction = f"{route['from_city']} → {route['to_city']}"
+
+        def parse_time_to_minutes(time_str: str) -> Optional[int]:
+            """Конвертируем HH:MM в минуты от начала суток."""
+            try:
+                hours, minutes = map(int, time_str.split(":")[:2])
+                return hours * 60 + minutes
+            except (ValueError, AttributeError, TypeError):
+                return None
+
+        def get_duration_text(route: Dict) -> str:
+            """Возвращает длительность рейса в формате H:MM."""
+            duration_minutes = None
+
+            for key in ("duration_minutes", "calculated_duration_minutes"):
+                value = route.get(key)
+                if isinstance(value, (int, float)):
+                    duration_minutes = int(value)
+                    break
+
+            if duration_minutes is None:
+                dep_minutes = parse_time_to_minutes(route.get('departure_time'))
+                arr_minutes = parse_time_to_minutes(route.get('arrival_time'))
+                if dep_minutes is not None and arr_minutes is not None:
+                    # Если прибытие раньше отправления - считаем, что рейс приходит на следующий день
+                    if arr_minutes < dep_minutes:
+                        arr_minutes += 24 * 60
+                    duration_minutes = arr_minutes - dep_minutes
+
+            if duration_minutes is None:
+                duration_str = route.get('duration')
+                if duration_str:
+                    hours_match = re.search(r'(\d+)\s*ч', duration_str)
+                    minutes_match = re.search(r'(\d+)\s*мин', duration_str)
+                    hours = int(hours_match.group(1)) if hours_match else 0
+                    minutes = int(minutes_match.group(1)) if minutes_match else 0
+                    if hours or minutes:
+                        duration_minutes = hours * 60 + minutes
+                    else:
+                        return duration_str
+
+            if duration_minutes is None:
+                return "н/д"
+
+            hours = duration_minutes // 60
+            minutes = duration_minutes % 60
+            return f"{hours}:{minutes:02d}"
+
+        def format_route_line(route: Dict) -> str:
+            seats_raw = route.get('available_seats', 0)
+            try:
+                seats = int(seats_raw)
+            except (ValueError, TypeError):
+                seats = 0
             
-            # Время отправления самой первой строкой
-            if i == 1:
-                message_parts.append(f"🚀 **{route.get('departure_time')} → {route.get('arrival_time')}**")
-                message_parts.append(f"📅 {config['date']}")
-                message_parts.append(f"🛣️ {direction}")
-                message_parts.append("")
-                message_parts.append("🔔 **НАЙДЕНЫ ПОДХОДЯЩИЕ РЕЙСЫ!**")
-                message_parts.append("")
-            
-            message_parts.append(f"**{i}. {direction}**")
-            message_parts.append(f"🚀 {route.get('departure_time')} → 🎯 {route.get('arrival_time')}")
-            message_parts.append(f"{emoji} **{seats} мест**")
-            message_parts.append("")
-        
+            if seats <= 0:
+                seat_emoji = "🚫"
+            elif seats <= 3:
+                seat_emoji = "🔥"
+            else:
+                seat_emoji = "✅"
+            duration_text = get_duration_text(route)
+            departure = route.get('departure_time', '?')
+            return f"🚀 {departure} ({duration_text}) {seat_emoji} {seats}"
+
+        message_parts = [format_route_line(route) for route in routes[:5]]
+
         if len(routes) > 5:
             message_parts.append(f"... и еще {len(routes) - 5} рейсов")
-        
+
         message_parts.extend([
+            "",
+            "🔔 НАЙДЕНЫ ПОДХОДЯЩИЕ РЕЙСЫ!",
             "",
             "📡 Мониторинг продолжается..."
         ])
-        
+
         message = "\n".join(message_parts)
         
         # Создаем кнопки с веб-приложениями
