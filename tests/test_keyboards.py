@@ -77,26 +77,16 @@ class TestKeyboardFactory:
         # Должен быть хотя бы один день недели
         assert len(found_weekdays) > 0
     
-    def test_get_direction_keyboard_with_all(self):
-        """Тест клавиатуры выбора направления с опцией 'Оба'"""
-        keyboard = KeyboardFactory.get_direction_keyboard(include_all=True)
-        
-        buttons_text = [btn.text for row in keyboard.inline_keyboard for btn in row]
-        
-        assert "🏙️ Минск → Островец" in buttons_text
-        assert "🏘️ Островец → Минск" in buttons_text
-        assert "🔄 Оба направления" in buttons_text
-        assert "🔙 Выбрать дату" in buttons_text
-    
-    def test_get_direction_keyboard_without_all(self):
-        """Тест клавиатуры выбора направления без опции 'Оба'"""
-        keyboard = KeyboardFactory.get_direction_keyboard(include_all=False)
+    def test_get_direction_keyboard(self):
+        """Тест клавиатуры выбора направления"""
+        keyboard = KeyboardFactory.get_direction_keyboard()
         
         buttons_text = [btn.text for row in keyboard.inline_keyboard for btn in row]
         
         assert "🏙️ Минск → Островец" in buttons_text
         assert "🏘️ Островец → Минск" in buttons_text
         assert "🔄 Оба направления" not in buttons_text
+        assert "🔙 Выбрать дату" in buttons_text
     
     def test_get_time_type_keyboard(self):
         """Тест клавиатуры выбора типа времени"""

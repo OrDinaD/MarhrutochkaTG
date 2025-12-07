@@ -4,12 +4,8 @@
 Использует современные практики python-telegram-bot без внешней БД
 """
 import logging
-from typing import Dict, Optional, TYPE_CHECKING, Any
+from typing import Dict, Optional, Any
 from datetime import datetime
-
-if TYPE_CHECKING:
-    # Только для типов, чтобы избежать обязательного импорта во время рантайма
-    from src.storage import MonitoringStorage as _MonitoringStorage  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
@@ -114,16 +110,6 @@ class UserManager:
         except Exception as e:
             logger.error(f"Ошибка загрузки мониторингов из storage: {e}")
             return 0
-
-    def save_all_to_storage(self) -> None:
-        """Сохраняет все текущие мониторинги в storage (массово)."""
-        if not self.storage:
-            return
-        try:
-            self.storage.save_all(self.active_monitors)
-        except Exception as e:
-            logger.error(f"Ошибка массового сохранения мониторингов в storage: {e}")
-    
 
 # Создаем глобальный экземпляр менеджера пользователей без внешних зависимостей
 user_manager = UserManager()

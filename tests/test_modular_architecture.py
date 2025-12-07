@@ -182,7 +182,6 @@ class TestModularArchitecture:
             'utils.keyboards',
             'utils.telegram_safe', 
             'managers.user_manager',
-            'callback_router',
             'monitoring.railway_logger_enhanced'
         ]
         

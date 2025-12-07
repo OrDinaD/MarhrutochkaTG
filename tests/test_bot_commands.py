@@ -307,7 +307,7 @@ class TestConversationHandlers:
     @pytest.mark.asyncio
     async def test_handle_monitoring_direction_choice(self):
         """Тест выбора направления для мониторинга"""
-        from bot import handle_monitoring_direction_choice, CHOOSE_TIME_TYPE
+        from bot import handle_monitoring_direction_choice, CHOOSE_TIME_RANGE
         
         update = Mock()
         update.callback_query = Mock()
@@ -325,8 +325,8 @@ class TestConversationHandlers:
         
         with patch('bot.user_data_store', {12345: {'date': '2025-11-03'}}):
             result = await handle_monitoring_direction_choice(update, context)
-            
-            assert result == CHOOSE_TIME_TYPE
+
+            assert result == CHOOSE_TIME_RANGE
     
     @pytest.mark.asyncio
     async def test_handle_monitoring_direction_back(self):

@@ -51,7 +51,6 @@
 ├── main.py                    # 🚀 Точка входа с environment validation
 ├── src/
 │   ├── bot.py                 # 🤖 Core bot logic + callback tracking
-│   ├── callback_router.py     # 🎯 Centralized callback distribution  
 │   ├── security.py            # 🔒 Input validation & rate limiting
 │   ├── admin_panel.py         # 👨‍💻 Real-time admin dashboard
 │   ├── managers/

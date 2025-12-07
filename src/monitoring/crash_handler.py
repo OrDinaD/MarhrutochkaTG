@@ -371,24 +371,6 @@ class CrashHandler:
         unique_id = str(uuid.uuid4())[:8]
         return f"crash_{timestamp}_{unique_id}"
     
-    async def _save_crash_report(self, crash_data: Dict[str, Any]):
-        """Сохраняет crash report локально"""
-        try:
-            crash_logs_dir = Path('crash_logs')
-            crash_logs_dir.mkdir(exist_ok=True)
-            
-            crash_id = crash_data.get('crash_id', 'unknown')
-            filename = f"{crash_id}.json"
-            filepath = crash_logs_dir / filename
-            
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(crash_data, f, indent=2, ensure_ascii=False, default=str)
-            
-            railway_logger.info(f"💾 Crash report saved: {filepath}", extra={"filepath": str(filepath)})
-            
-        except Exception as e:
-            railway_logger.error(f"❌ Failed to save crash report: {e}", exc_info=True)
-
     def handle_crash(self, exception: Exception, tb_str=None):
         """Синхронный обработчик крашей"""
         try:
@@ -447,42 +429,6 @@ class CrashHandler:
         # Логируем активацию
         railway_logger.system_action("🛡️ Crash handler activated")
     
-    async def handle_exception(self, exception: Exception, test_context: str = None):
-        """Обрабатывает исключение и создает crash report"""
-        tb_str = traceback.format_exc() if not test_context else f"Test context: {test_context}"
-        
-        # Собираем данные о краше
-        crash_data = {
-            "crash_id": self._generate_crash_id(),
-            "timestamp": datetime.now().isoformat(),
-            "exception": {
-                "type": type(exception).__name__,
-                "message": str(exception),
-                "traceback": tb_str
-            }
-        }
-        
-        # Добавляем системную информацию
-        crash_data["system_info"] = self.collect_system_info()
-        crash_data["dependencies_info"] = self.collect_dependencies_info()
-        crash_data["application_state"] = self.collect_application_state()
-        crash_data["network_info"] = self.collect_network_info()
-        
-        # Сохраняем локально
-        await self._save_crash_report(crash_data)
-        
-        # Загружаем в GitHub Gist (если возможно)
-        gist_url = await self.upload_to_github_gist(crash_data)
-        if gist_url:
-            crash_data["gist_url"] = gist_url
-        
-        # Отправляем уведомление
-        await self.send_crash_notification(crash_data)
-        
-        await self.send_crash_notification(crash_data)
-        
-        return crash_data
-
 def setup_crash_handler():
     """Настраивает глобальный crash handler"""
     crash_handler.setup_crash_handling()

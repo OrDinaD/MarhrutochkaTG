@@ -11,7 +11,7 @@ import asyncio
 import platform
 import traceback
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .railway_logger_enhanced import railway_logger
 
@@ -139,27 +139,6 @@ class DiagnosticSystem:
             }
         }
     
-    def analyze_crash(self, crash_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Синхронный метод анализа краша (для обратной совместимости)"""
-        error_type = crash_data.get('error_type', 'Unknown')
-        
-        # Ищем известное решение
-        solution = self.solutions_db.get(error_type, {
-            "category": "unknown",
-            "severity": "medium",
-            "description": "Unknown error type",
-            "solutions": ["Check logs for more details"],
-            "prevention": []
-        })
-        
-        return {
-            "category": solution.get('category', 'unknown'),
-            "severity": solution.get('severity', 'medium'),
-            "solutions": solution.get('solutions', []),
-            "prevention": solution.get('prevention', []),
-            "description": solution.get('description', '')
-        }
-    
     async def analyze_crash_report_from_exception(self, exception: Exception) -> Optional[Dict[str, Any]]:
         """Создает и анализирует crash report из исключения"""
         try:
@@ -189,13 +168,6 @@ class DiagnosticSystem:
         """Анализирует краш-репорт и предлагает решения"""
         crash_id = crash_report.get('crash_id', 'unknown')
         crash_file = self.crash_logs_dir / f"{crash_id}.json"
-        
-        # Анализируем переданный crash_report напрямую, не загружаем из файла
-        analysis_result = {
-            "crash_id": crash_id,
-            "timestamp": datetime.now().isoformat(),
-            "analysis": {}
-        }
         
         try:
             # Используем переданный crash_report
@@ -547,21 +519,6 @@ class DiagnosticSystem:
         reports.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
         return reports
     
-    def get_recent_crashes(self, hours: int = 24) -> List[Dict[str, Any]]:
-        """Возвращает краши за последние N часов"""
-        cutoff_time = datetime.now() - timedelta(hours=hours)
-        
-        recent_crashes = []
-        for report in self.list_crash_reports():
-            try:
-                crash_time = datetime.fromisoformat(report['timestamp'].replace('Z', '+00:00'))
-                if crash_time > cutoff_time:
-                    recent_crashes.append(report)
-            except (ValueError, TypeError):
-                continue
-        
-        return recent_crashes
-
 # Глобальный экземпляр
 diagnostic_system = DiagnosticSystem()
 

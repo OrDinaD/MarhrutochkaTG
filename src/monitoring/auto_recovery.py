@@ -12,7 +12,7 @@ import asyncio
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import aiohttp
 import telegram
@@ -23,7 +23,6 @@ class AutoRecoverySystem:
     
     def __init__(self):
         self.recovery_log = []
-        self.max_recovery_attempts = 3
         self.recovery_cooldown = 300  # 5 минут
         self.last_recovery_time = None
         

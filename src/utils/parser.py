@@ -24,13 +24,9 @@ class FinalMarshrutochkaParser:
         self.session = aiohttp.ClientSession()
         return self
         
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, _exc_type, _exc_val, _exc_tb):
         if self.session:
             await self.session.close()
-
-    def clear_cache(self) -> None:
-        """Очистить кэш расписаний."""
-        self._cache.clear()
 
     def _cache_key(self, from_city_id: str, to_city_id: str, date: str) -> tuple:
         """Create a cache key for schedule requests."""
@@ -292,8 +288,9 @@ class FinalMarshrutochkaParser:
                     try:
                         from .route_analyzer import RouteAnalyzer
                         smorgon_arrival = RouteAnalyzer.calculate_intermediate_arrival_time(
-                            departure_time, "Островец", 
-                            ["Минск", "Сморгонь", "Островец"], "Сморгонь"
+                            departure_time,
+                            ["Минск", "Сморгонь", "Островец"],
+                            "Сморгонь"
                         )
                         if smorgon_arrival:
                             smorgon_route['arrival_time'] = smorgon_arrival
@@ -355,8 +352,9 @@ class FinalMarshrutochkaParser:
                     try:
                         from .route_analyzer import RouteAnalyzer
                         smorgon_arrival = RouteAnalyzer.calculate_intermediate_arrival_time(
-                            departure_time, "Минск", 
-                            ["Островец", "Сморгонь", "Минск"], "Сморгонь"
+                            departure_time,
+                            ["Островец", "Сморгонь", "Минск"],
+                            "Сморгонь"
                         )
                         if smorgon_arrival:
                             smorgon_route['arrival_time'] = smorgon_arrival

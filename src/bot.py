@@ -111,7 +111,7 @@ async def track_callback_end(user_id: int):
         duration = (datetime.now() - callback_info['start_time']).total_seconds()
         logger.info(f"✅ [{user_id}] Завершен callback: {callback_info['handler']} ({duration:.2f}s)")
 
-async def cleanup_stuck_callbacks(context: ContextTypes.DEFAULT_TYPE):
+async def cleanup_stuck_callbacks(context: ContextTypes.DEFAULT_TYPE = None):
     """Очистка застрявших callback handlers"""
     current_time = datetime.now()
     stuck_users = []
@@ -348,7 +348,7 @@ async def init_parser():
 
 # ==================== UTILITY FUNCTIONS ====================
 
-def create_webapp_url(direction: str, date: str = None) -> str:
+def create_webapp_url(direction: Optional[str] = None, date: str = None) -> str:
     """Создает URL для веб-приложения маршруточки с предвыбранным направлением"""
     base_url = "https://билет.маршруточка.бел/"
     
@@ -898,19 +898,12 @@ async def handle_monitoring_direction_choice(update: Update, context: ContextTyp
 
 @callback_handler_protection(timeout=20)
 async def handle_time_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора типа времени - УБРАНО, теперь по умолчанию используется время отправления"""
-    # Этот обработчик больше не используется, так как шаг выбора типа времени убран
-    # По умолчанию всегда используется время отправления (departure)
-    # Обработчик оставлен для обратной совместимости, но не должен вызываться
+    """Обработка выбора типа времени (используется при изменении настроек мониторинга)."""
     query = update.callback_query
     await safe_answer_callback(query)
     
     user_id = query.from_user.id
     data = query.data
-    
-    # Обработчик больше не нужен, так как шаг выбора типа времени удален
-    # По умолчанию используется время отправления
-    return CHOOSE_TIME_TYPE
     
     if data.startswith("time_"):
         time_type = data.replace("time_", "")
@@ -1007,6 +1000,15 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
             parse_mode='Markdown'
         )
         return CHOOSE_DIRECTION
+    
+    elif data == "range_custom":
+        await safe_edit_message(
+            query,
+            "🕐 **Введите желаемый диапазон времени**\n\n"
+            "Формат: `HH:MM-HH:MM` (например, 07:00-09:00)",
+            parse_mode='Markdown'
+        )
+        return CHOOSE_TIME_RANGE
     
     elif data.startswith("range_"):
         time_range = data.replace("range_", "")
@@ -2394,28 +2396,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await _return_to_time_range(user_id, query)
     
     elif data == "stop_monitoring":
-        if user_manager.remove_user_monitor(user_id):
-            # Удаляем задачу из планировщика
-            try:
-                if job_queue:
-                    current_jobs = job_queue.get_jobs_by_name(f"monitor_{user_id}")
-                    for job in current_jobs:
-                        job.schedule_removal()
-            except Exception:
-                pass
-            
-            await safe_edit_message(
-                query,
-                "✅ **Мониторинг остановлен**\n\n"
-                "💡 Для настройки нового мониторинга используйте /start",
-                parse_mode='Markdown'
-            )
-        else:
-            await safe_edit_message(
-                query,
-                "ℹ️ **Мониторинг не был активен**",
-                parse_mode='Markdown'
-            )
+        return await stop_monitoring(update, context)
     
     elif data == "search_routes":
         # Новый поиск с выбором направления
@@ -2535,37 +2516,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif data == "my_monitors":
-        if user_id in active_monitors:
-            config = active_monitors[user_id]
-            config_text = format_monitor_config(config)
-            
-            keyboard = [
-                [InlineKeyboardButton("🛑 Остановить", callback_data="stop_monitoring")],
-                [InlineKeyboardButton("🔧 Изменить", callback_data="setup_monitoring")],
-                [InlineKeyboardButton("📱 Проверить сейчас", callback_data="check_now")]
-            ]
-            
-            await safe_edit_message(
-                query,
-                f"📊 **Активный мониторинг:**\n\n{config_text}\n\n"
-                f"⏰ **Создан:** {config.get('created_at', 'н/д')[:19].replace('T', ' ')}\n\n"
-                "💡 **Действия:**",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-        else:
-            keyboard = [
-                [InlineKeyboardButton("🔔 Настроить мониторинг", callback_data="setup_monitoring")],
-                [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
-            ]
-            
-            await safe_edit_message(
-                query,
-                "📊 **Мониторинг не активен**\n\n"
-                "💡 Хотите настроить автоматическую проверку рейсов?",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
+        await my_monitors(update, context)
     
     elif data == "check_now":
         if user_id in active_monitors:
