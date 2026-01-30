@@ -72,6 +72,24 @@ class UserManager:
         """Связывает внешнее хранилище пользовательских данных"""
         self.user_data_store = storage
     
+    def set_user_credentials(self, user_id: int, phone: str, password: str):
+        """Сохраняет учетные данные пользователя (в памяти)."""
+        if user_id not in self.user_data_store:
+            self.user_data_store[user_id] = {}
+        self.user_data_store[user_id]['credentials'] = {
+            'phone': phone,
+            'password': password
+        }
+        logger.info(f"Сохранены учетные данные для пользователя {user_id}")
+
+    def get_user_credentials(self, user_id: int) -> Optional[Dict[str, str]]:
+        """Получает учетные данные пользователя."""
+        return self.user_data_store.get(user_id, {}).get('credentials')
+
+    def is_user_authorized(self, user_id: int) -> bool:
+        """Проверяет, авторизован ли пользователь (есть ли сохраненные данные)."""
+        return bool(self.get_user_credentials(user_id))
+
     def emergency_reset_user(self, user_id: int):
         """
         Экстренный сброс всех данных пользователя.

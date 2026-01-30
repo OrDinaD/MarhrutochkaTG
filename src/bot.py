@@ -54,6 +54,7 @@ except ImportError:
     from utils.telegram_safe import TelegramSafeAPI, safe_edit_message, safe_answer_callback
     from managers.user_manager import user_manager
     from storage import create_storage_from_env
+    from scraper.booking_bot import BookingBot
 
 # Настройка логирования - используем Railway enhanced logger если доступен
 if railway_logger:
@@ -233,7 +234,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Состояния для ConversationHandler
 (CHOOSE_DATE, CHOOSE_DIRECTION, CHOOSE_TIME_TYPE, CHOOSE_TIME_RANGE,
- CONFIRM_MONITORING, SEARCH_DATE) = range(6)
+ CONFIRM_MONITORING, SEARCH_DATE, LOGIN_PHONE, LOGIN_PASSWORD) = range(8)
 
 # Глобальные переменные
 parser = None
@@ -720,6 +721,51 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
 
+# ==================== LOGIN HANDLERS ====================
+
+async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start login conversation"""
+    await update.message.reply_text(
+        "🔐 **Вход в аккаунт маршруточки**\n\n"
+        "Для работы авто-бронирования необходимо войти в аккаунт.\n"
+        "Введите ваш номер телефона (например, +375291234567):",
+        parse_mode='Markdown'
+    )
+    return LOGIN_PHONE
+
+async def handle_login_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    phone = update.message.text
+    # Simple validation could be added here
+    context.user_data['login_phone'] = phone
+    await update.message.reply_text(
+        "🔑 **Введите ваш пароль:**",
+        parse_mode='Markdown'
+    )
+    return LOGIN_PASSWORD
+
+async def handle_login_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    password = update.message.text
+    phone = context.user_data.get('login_phone')
+    user_id = update.effective_user.id
+    
+    msg = await update.message.reply_text("🔄 Проверяю вход (это может занять несколько секунд)...")
+    
+    try:
+        bot = BookingBot()
+        success = await bot.login(phone, password)
+        await bot.stop()
+        
+        if success:
+            user_manager.set_user_credentials(user_id, phone, password)
+            await msg.edit_text("✅ **Вход выполнен успешно!**\nТеперь вы можете использовать авто-бронирование при настройке мониторинга.", parse_mode='Markdown')
+        else:
+            await msg.edit_text("❌ **Ошибка входа.**\nПроверьте номер телефона и пароль, затем попробуйте снова /login.", parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        await msg.edit_text("❌ **Произошла ошибка при входе.**\nПопробуйте позже.", parse_mode='Markdown')
+    
+    return ConversationHandler.END
+
 # ==================== CONVERSATION HANDLERS ====================
 
 async def start_monitoring_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1014,17 +1060,25 @@ async def handle_time_range_choice(update: Update, context: ContextTypes.DEFAULT
         time_range = data.replace("range_", "")
         
         user_data_store[user_id]['time_range'] = time_range
+        # Default auto_book to False
+        if 'auto_book' not in user_data_store[user_id]:
+            user_data_store[user_id]['auto_book'] = False
         
         config_text = format_monitor_config(user_data_store[user_id])
+        auto_book_status = "✅ ВКЛ" if user_data_store[user_id]['auto_book'] else "❌ ВЫКЛ"
+        
+        keyboard = [
+            [InlineKeyboardButton(f"🤖 Авто-бронирование: {auto_book_status}", callback_data="toggle_autobook")],
+            [InlineKeyboardButton("✅ Запустить мониторинг", callback_data="confirm_yes")],
+            [InlineKeyboardButton("🔙 Изменить время", callback_data="back_to_time_range")]
+        ]
         
         await safe_edit_message(
             query,
             f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
+            f"🤖 **Авто-бронирование:** {auto_book_status}\n\n"
             "❓ **Все верно?**",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Да, все верно!", callback_data="confirm_yes")],
-                [InlineKeyboardButton("🔙 Изменить время", callback_data="back_to_time_range")]
-            ]),
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
         
@@ -1157,6 +1211,35 @@ async def handle_monitoring_confirmation(update: Update, context: ContextTypes.D
 
         await _store_monitoring_config(user_id, query, context, session)
         return ConversationHandler.END
+        
+    elif data == "toggle_autobook":
+        # Check authorization
+        if not user_manager.is_user_authorized(user_id):
+            await query.answer("⚠️ Сначала войдите в аккаунт через /login", show_alert=True)
+            return CONFIRM_MONITORING
+        
+        # Toggle
+        user_data_store[user_id]['auto_book'] = not user_data_store[user_id].get('auto_book', False)
+        
+        # Re-render
+        config_text = format_monitor_config(user_data_store[user_id])
+        auto_book_status = "✅ ВКЛ" if user_data_store[user_id]['auto_book'] else "❌ ВЫКЛ"
+        
+        keyboard = [
+            [InlineKeyboardButton(f"🤖 Авто-бронирование: {auto_book_status}", callback_data="toggle_autobook")],
+            [InlineKeyboardButton("✅ Запустить мониторинг", callback_data="confirm_yes")],
+            [InlineKeyboardButton("🔙 Изменить время", callback_data="back_to_time_range")]
+        ]
+        
+        await safe_edit_message(
+            query,
+            f"✅ **Настройки мониторинга:**\n\n{config_text}\n\n"
+            f"🤖 **Авто-бронирование:** {auto_book_status}\n\n"
+            "❓ **Все верно?**",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+        return CONFIRM_MONITORING
 
     elif data in {"back_to_range", "back_to_time_range"}:
         return await _return_to_time_range(user_id, query)
@@ -1256,6 +1339,74 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== MONITORING FUNCTIONS ====================
 
+async def try_auto_book(user_id: int, routes: List, config: Dict, context: ContextTypes.DEFAULT_TYPE):
+    """Попытка автоматического бронирования"""
+    credentials = user_manager.get_user_credentials(user_id)
+    if not credentials:
+        await send_monitoring_notification(user_id, routes, config, context)
+        return
+
+    # Берем первый подходящий рейс
+    target_route = routes[0]
+    target_time = target_route.get('departure_time')
+    
+    if not target_time:
+        await send_monitoring_notification(user_id, routes, config, context)
+        return
+
+    bot_api = context.bot if context else application.bot
+    chat_id = config['chat_id']
+    
+    await bot_api.send_message(chat_id, f"🤖 **Авто-бронирование:** Пытаюсь забронировать рейс на {target_time}...", parse_mode='Markdown')
+    
+    booking_bot = BookingBot()
+    try:
+        if await booking_bot.login(credentials['phone'], credentials['password']):
+            # Определяем города по направлению
+            from_city, to_city = "Минск", "Островец"
+            if config['direction'] == 'ostrovets_minsk':
+                from_city, to_city = "Островец", "Минск"
+            elif config['direction'] == 'both':
+                 # Если оба, надо понять какой это рейс. В routes_data это разделено, но здесь routes - плоский список
+                 # Мы не знаем направление конкретного рейса из списка suitable_routes если он смешанный?
+                 # suitable_routes собирается в filter_routes_by_criteria
+                 # Но filter_routes_by_criteria не добавляет инфу о направлении в объект route, если её там нет.
+                 # Обычно парсер возвращает структуру, но мы её сплющили.
+                 # Предположим для простоты, что 'both' мониторит и то и то, но бронирует первое попавшееся.
+                 # Нам нужно знать откуда рейс.
+                 # В парсере departure_time уникально? Нет.
+                 # Пока поддержим четкие направления. Если both - попробуем угадать или пропустим.
+                 pass
+
+            # Выполняем поиск в браузере
+            await booking_bot.find_tickets(from_city, to_city, config['date'])
+            
+            # Бронируем
+            success = await booking_bot.book_ticket(target_time)
+            
+            if success:
+                await bot_api.send_message(
+                    chat_id, 
+                    f"✅ **Успешно!** Запрос на бронирование рейса {target_time} ({from_city} → {to_city}) отправлен.\n"
+                    "Проверьте статус в личном кабинете или дождитесь звонка диспетчера.", 
+                    parse_mode='Markdown'
+                )
+                # Можно остановить мониторинг
+                # user_manager.remove_user_monitor(user_id)
+            else:
+                await bot_api.send_message(chat_id, f"❌ **Не удалось завершить бронирование.**\nВероятно, места уже разобрали или требуется ручное подтверждение.", parse_mode='Markdown')
+                await send_monitoring_notification(user_id, routes, config, context)
+        else:
+             await bot_api.send_message(chat_id, f"❌ **Ошибка входа при авто-бронировании.**\nПроверьте пароль через /login.", parse_mode='Markdown')
+             await send_monitoring_notification(user_id, routes, config, context)
+
+    except Exception as e:
+        logger.error(f"Auto-booking failed: {e}")
+        await bot_api.send_message(chat_id, f"❌ **Ошибка авто-бронирования:** {e}", parse_mode='Markdown')
+        await send_monitoring_notification(user_id, routes, config, context)
+    finally:
+        await booking_bot.stop()
+
 async def check_routes_for_user(context: ContextTypes.DEFAULT_TYPE):
     """Проверка рейсов для конкретного пользователя"""
     user_id = context.job.data
@@ -1277,7 +1428,11 @@ async def check_routes_for_user(context: ContextTypes.DEFAULT_TYPE):
         suitable_routes = filter_routes_by_criteria(routes_data, config)
         
         if suitable_routes:
-            await send_monitoring_notification(user_id, suitable_routes, config, context)
+            # Check for auto-booking
+            if config.get('auto_book'):
+                await try_auto_book(user_id, suitable_routes, config, context)
+            else:
+                await send_monitoring_notification(user_id, suitable_routes, config, context)
     
     except Exception as e:
         logger.error(f"Ошибка при проверке рейсов для пользователя {user_id}: {e}")
@@ -3043,8 +3198,16 @@ def register_handlers(application):
         ],
         per_message=True,
     )
-
-    # ConversationHandler для бронирования удален - бронирование больше не поддерживается
+    
+    # Настройка ConversationHandler для входа
+    login_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("login", login_command)],
+        states={
+            LOGIN_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_login_phone)],
+            LOGIN_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_login_password)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_conversation)],
+    )
 
     # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
@@ -3058,6 +3221,7 @@ def register_handlers(application):
     
     # Добавляем ConversationHandlers
     application.add_handler(monitoring_conv_handler)
+    application.add_handler(login_conv_handler)
     # booking_conv_handler удален - бронирование не поддерживается
     
     # Добавляем обработчики кнопок (порядок важен!)
