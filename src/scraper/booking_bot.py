@@ -151,7 +151,7 @@ class BookingBot:
             # Fill Date
             # The date input is readonly, so we might need to evaluate js to set it or click the datepicker.
             # Let's try forcing the value via JS since it's readonly.
-            await self.page.evaluate(f"document.querySelector('input[name="date"]').value = '{date}'")
+            await self.page.evaluate(f"document.querySelector('input[name=\"date\"]').value = '{date}'")
             
             # Click Search
             await self.page.click('.js_reservation-button')
