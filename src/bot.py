@@ -328,6 +328,11 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors from telegram.ext and log them."""
+    # Проверяем есть ли реальная ошибка
+    if not context.error:
+        # Это не ошибка, а просто уведомление
+        return
+        
     # Получаем дополнительную информацию об update
     update_info = {}
     if hasattr(update, 'effective_user') and update.effective_user:
@@ -336,9 +341,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         update_info['chat_id'] = update.effective_chat.id
     if hasattr(update, 'effective_message') and update.effective_message:
         update_info['message_id'] = update.effective_message.message_id
-        
-    safe_log_bot("Ошибка при обработке update", update_info, level="error")
-    logger.error("Exception details:", exc_info=context.error)
+
+    # Добавляем информацию об ошибке
+    error_info = update_info.copy()
+    error_info['error_type'] = type(context.error).__name__
+    error_info['error_message'] = str(context.error)[:200]
+
+    safe_log_bot("Ошибка при обработке update", error_info, level="error")
+    
+    # Логируем traceback только если есть ошибка
+    if context.error:
+        logger.error("Exception details:", exc_info=context.error)
 
 async def init_parser():
     """Инициализация парсера"""
