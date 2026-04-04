@@ -1,157 +1,65 @@
-# Environment and configuration
-.env
-apikey.txt
+```
+# Nix-related
+result
+.nixd/
+.nix-*
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Виртуальное окружение
-venv/
+# Environment and dependency directories
 .venv/
-env/
-ENV/
-env.bak/
-venv.bak/
+venv/
+.env
+.env.*
 
-# Данные и логи
-data/
+# Build artifacts
+dist/
+build/
+target/
+
+# Dependencies
+node_modules/
+
+# Cache directories
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.nyc_output/
+coverage/
+
+# Logs
 *.log
 
-# Временные файлы
-*.tmp
-*.temp
-temp/
+# OS generated files
+.DS_Store
+Thumbs.db
 
-# IDE
+# Editor/IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*.tmp
 
-# Documentation - ignore all MD files except README and important docs
-*.md
-!README.md
-!docs/RAILWAY_LOGGING.md
-!docs/RAILWAY_DEPLOY.md
-!docs/RAILWAY_RELOAD.md
-!docs/USER_GUIDE.md
-!docs/DEPLOYMENT.md
-!docs/TESTING_GUIDE.md
-!docs/BETA_WORKFLOW.md
-!docs/CLEANUP_AND_FIXES_REPORT.md
-!docs/BUTTON_FREEZE_FIX_REPORT.md
-!.github/AGENTS.md
-
-# Data files
-*.json
-!package.json
-monitors.json
-user_sessions.json
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-
-# Windows
-Thumbs.db
-Desktop.ini
-
-# Мониторинги (локальные данные)
-monitors.json
-
-# Скриншоты и временные файлы
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.pdf
-!assets/*.png
-!assets/*.svg
-!assets/*.jpg
-marsha_*.py
-*_report.json
-*_exploration_*
-*REPORT*.md
-*STATUS*.md
-*SUMMARY*.md
-*CLEANUP*.md
-*~
-
-# Кеш и временные файлы
-.cache/
-*.pyc
-*.pyo
-*.pyd
-.Python
-__pycache__/
-
-# HTML файлы и скриншоты (результаты парсинга)
-*.html
-*.png
-*.json
-
-# Исключения для важных JSON файлов (если нужны)
-# !important_config.json
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# celery beat schedule file
-celerybeat-schedule
-
-# SageMath parsed files
-*.sage.py
-
-# Coverage reports
-htmlcov/
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+```
